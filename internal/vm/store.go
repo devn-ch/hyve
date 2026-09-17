@@ -10,11 +10,25 @@ import (
 
 const DefaultStateDir = "/var/lib/hyve/vms"
 
+type DriveType string
+
+const (
+	DriveTypeDisk  DriveType = "disk"
+	DriveTypeCDROM DriveType = "cdrom"
+)
+
+type Drive struct {
+	Type     DriveType `json:"type"`
+	Path     string    `json:"path"`
+	Size     string    `json:"size,omitempty"`
+	ReadOnly bool      `json:"readonly,omitempty"`
+}
+
 type Definition struct {
-	Name   string `json:"name"`
-	CPUs   int    `json:"cpus"`
-	Memory string `json:"memory"`
-	Disk   string `json:"disk"`
+	Name   string  `json:"name"`
+	CPUs   int     `json:"cpus"`
+	Memory string  `json:"memory"`
+	Drives []Drive `json:"drives"`
 }
 
 type Store struct {
@@ -40,8 +54,8 @@ func (s *Store) Create(def Definition) error {
 		def.Memory = "512M"
 	}
 
-	if def.Disk == "" {
-		def.Disk = "disk.qcow2"
+	if err := validateDrives(def.Drives); err != nil {
+		return err
 	}
 
 	vmDir := filepath.Join(s.BaseDir, def.Name)
@@ -56,9 +70,7 @@ func (s *Store) Create(def Definition) error {
 		return fmt.Errorf("create VM directory: %w", err)
 	}
 
-	diskPath := filepath.Join(vmDir, def.Disk)
-
-	if err := createDisk(diskPath); err != nil {
+	if err := prepareDrives(vmDir, def.Drives); err != nil {
 		_ = os.RemoveAll(vmDir)
 		return err
 	}
@@ -79,19 +91,88 @@ func (s *Store) Create(def Definition) error {
 	return nil
 }
 
-func createDisk(path string) error {
+func validateDrives(drives []Drive) error {
+	if len(drives) == 0 {
+		return fmt.Errorf("at least one --drive is required")
+	}
+
+	hasDisk := false
+
+	for _, drive := range drives {
+		switch drive.Type {
+		case DriveTypeDisk:
+			if drive.Size == "" {
+				return fmt.Errorf("disk drive requires a size")
+			}
+
+			hasDisk = true
+
+		case DriveTypeCDROM:
+			if drive.Path == "" {
+				return fmt.Errorf("cdrom drive requires a path")
+			}
+
+		default:
+			return fmt.Errorf("unsupported drive type %q", drive.Type)
+		}
+	}
+
+	if !hasDisk {
+		return fmt.Errorf("at least one disk drive is required")
+	}
+
+	return nil
+}
+
+func prepareDrives(vmDir string, drives []Drive) error {
+	diskIndex := 0
+
+	for i := range drives {
+		drive := &drives[i]
+
+		switch drive.Type {
+		case DriveTypeDisk:
+			filename := fmt.Sprintf("disk-%d.qcow2", diskIndex)
+			diskIndex++
+
+			drive.Path = filename
+
+			diskPath := filepath.Join(vmDir, filename)
+
+			if err := createDisk(diskPath, drive.Size); err != nil {
+				return err
+			}
+
+		case DriveTypeCDROM:
+			if _, err := os.Stat(drive.Path); err != nil {
+				return fmt.Errorf(
+					"cdrom %q: %w",
+					drive.Path,
+					err,
+				)
+			}
+
+			drive.ReadOnly = true
+		}
+	}
+
+	return nil
+}
+
+func createDisk(path string, size string) error {
 	cmd := exec.Command(
 		"qemu-img",
 		"create",
 		"-f", "qcow2",
 		path,
-		"10G",
+		size,
 	)
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf(
-			"create disk: %w: %s",
+			"create disk %q: %w: %s",
+			path,
 			err,
 			string(output),
 		)

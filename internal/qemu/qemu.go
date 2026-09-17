@@ -8,12 +8,27 @@ import (
 	"syscall"
 )
 
+type DriveType string
+
+const (
+	DriveTypeDisk  DriveType = "disk"
+	DriveTypeCDROM DriveType = "cdrom"
+)
+
+type Drive struct {
+	Type     DriveType
+	Path     string
+	Size     string
+	ReadOnly bool
+}
+
 type Config struct {
-	Name      string
-	CPUs      int
-	Memory    string
-	Disk      string
-	QMPSocket string
+	Name          string
+	CPUs          int
+	Memory        string
+	Drives        []Drive
+	BootFromCDROM bool
+	QMPSocket     string
 }
 
 type QEMU struct {
@@ -46,6 +61,38 @@ func (q *QEMU) Start(ctx context.Context, cfg Config) error {
 		"-nographic",
 		"-serial", "stdio",
 		"-monitor", "none",
+	}
+
+	if cfg.BootFromCDROM {
+		args = append(args,
+			"-boot",
+			"order=d",
+		)
+	}
+
+	for _, drive := range cfg.Drives {
+		switch drive.Type {
+		case DriveTypeDisk:
+			args = append(args,
+				"-drive",
+				fmt.Sprintf(
+					"file=%s,format=qcow2,if=virtio",
+					drive.Path,
+				),
+			)
+
+		case DriveTypeCDROM:
+			args = append(args,
+				"-drive",
+				fmt.Sprintf(
+					"file=%s,media=cdrom,readonly=on",
+					drive.Path,
+				),
+			)
+
+		default:
+			return fmt.Errorf("unsupported drive type %q", drive.Type)
+		}
 	}
 
 	if cfg.QMPSocket != "" {

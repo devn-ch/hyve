@@ -347,10 +347,22 @@ func handleConnection(
 
 	switch request.Command {
 	case "create":
+		drives := make([]vm.Drive, 0, len(request.Config.Drives))
+
+		for _, drive := range request.Config.Drives {
+			drives = append(drives, vm.Drive{
+				Type:     vm.DriveType(drive.Type),
+				Path:     drive.Path,
+				Size:     drive.Size,
+				ReadOnly: drive.ReadOnly,
+			})
+		}
+
 		err := manager.Create(vm.Definition{
 			Name:   request.Config.Name,
 			CPUs:   request.Config.CPUs,
 			Memory: request.Config.Memory,
+			Drives: drives,
 		})
 
 		if err != nil {
@@ -376,10 +388,32 @@ func handleConnection(
 			return
 		}
 
+		drives := make([]qemu.Drive, 0, len(def.Drives))
+
+		vmDir := filepath.Join(manager.store.BaseDir, def.Name)
+
+		for _, drive := range def.Drives {
+			path := drive.Path
+
+			// internal VM-files are relative to the VM directory.
+			if !filepath.IsAbs(path) {
+				path = filepath.Join(vmDir, path)
+			}
+
+			drives = append(drives, qemu.Drive{
+				Type:     qemu.DriveType(drive.Type),
+				Path:     path,
+				Size:     drive.Size,
+				ReadOnly: drive.ReadOnly,
+			})
+		}
+
 		err = manager.Start(ctx, qemu.Config{
-			Name:   def.Name,
-			CPUs:   def.CPUs,
-			Memory: def.Memory,
+			Name:          def.Name,
+			CPUs:          def.CPUs,
+			Memory:        def.Memory,
+			Drives:        drives,
+			BootFromCDROM: true,
 		})
 
 		if err != nil {

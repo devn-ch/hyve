@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strconv"
+	"strings"
 	"text/tabwriter"
 
 	"github.com/devn-ch/hyve/internal/qemu"
@@ -36,6 +38,133 @@ type ListResponse struct {
 	VMs   []VMInfo `json:"vms,omitempty"`
 }
 
+func parseCreateArgs(args []string) (qemu.Config, error) {
+	if len(args) < 1 {
+		return qemu.Config{}, fmt.Errorf("VM name is required")
+	}
+
+	cfg := qemu.Config{
+		Name:   args[0],
+		CPUs:   1,
+		Memory: "512M",
+	}
+
+	for i := 1; i < len(args); i++ {
+		arg := args[i]
+
+		switch {
+		case arg == "--cpus":
+			if i+1 >= len(args) {
+				return qemu.Config{}, fmt.Errorf("--cpus requires a value")
+			}
+
+			cpus, err := strconv.Atoi(args[i+1])
+			if err != nil || cpus < 1 {
+				return qemu.Config{}, fmt.Errorf(
+					"invalid CPU count %q",
+					args[i+1],
+				)
+			}
+
+			cfg.CPUs = cpus
+			i++
+
+		case strings.HasPrefix(arg, "--cpus="):
+			value := strings.TrimPrefix(arg, "--cpus=")
+
+			cpus, err := strconv.Atoi(value)
+			if err != nil || cpus < 1 {
+				return qemu.Config{}, fmt.Errorf(
+					"invalid CPU count %q",
+					value,
+				)
+			}
+
+			cfg.CPUs = cpus
+
+		case arg == "--memory":
+			if i+1 >= len(args) {
+				return qemu.Config{}, fmt.Errorf("--memory requires a value")
+			}
+
+			cfg.Memory = args[i+1]
+			i++
+
+		case strings.HasPrefix(arg, "--memory="):
+			cfg.Memory = strings.TrimPrefix(arg, "--memory=")
+
+			if cfg.Memory == "" {
+				return qemu.Config{}, fmt.Errorf(
+					"--memory requires a value",
+				)
+			}
+
+		case arg == "--drive":
+			if i+1 >= len(args) {
+				return qemu.Config{}, fmt.Errorf("--drive requires a value")
+			}
+
+			drive, err := parseDrive(args[i+1])
+			if err != nil {
+				return qemu.Config{}, err
+			}
+
+			cfg.Drives = append(cfg.Drives, drive)
+			i++
+
+		case strings.HasPrefix(arg, "--drive="):
+			value := strings.TrimPrefix(arg, "--drive=")
+
+			drive, err := parseDrive(value)
+			if err != nil {
+				return qemu.Config{}, err
+			}
+
+			cfg.Drives = append(cfg.Drives, drive)
+
+		default:
+			return qemu.Config{}, fmt.Errorf(
+				"unknown option %q",
+				arg,
+			)
+		}
+	}
+
+	return cfg, nil
+}
+
+func parseDrive(value string) (qemu.Drive, error) {
+	parts := strings.SplitN(value, ":", 2)
+
+	if len(parts) != 2 || parts[1] == "" {
+		return qemu.Drive{}, fmt.Errorf(
+			"invalid --drive %q, expected disk:SIZE or cdrom:PATH",
+			value,
+		)
+	}
+
+	switch parts[0] {
+	case "disk":
+		return qemu.Drive{
+			Type: qemu.DriveTypeDisk,
+			Size: parts[1],
+		}, nil
+
+	case "cdrom":
+		return qemu.Drive{
+			Type:     qemu.DriveTypeCDROM,
+			Path:     parts[1],
+			ReadOnly: true,
+		}, nil
+
+	default:
+		return qemu.Drive{}, fmt.Errorf(
+			"unsupported drive type %q",
+			parts[0],
+		)
+	}
+}
+
 func main() {
 	if len(os.Args) < 2 {
 		usage()
@@ -44,7 +173,18 @@ func main() {
 
 	switch os.Args[1] {
 	case "create":
-		create()
+		if len(os.Args) < 3 {
+			usage()
+			os.Exit(1)
+		}
+
+		cfg, err := parseCreateArgs(os.Args[2:])
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "hyve: %v\n", err)
+			os.Exit(1)
+		}
+
+		create(cfg)
 	case "run":
 		run()
 	case "list":
@@ -163,24 +303,17 @@ func list() {
 	writer.Flush()
 }
 
-func create() {
-	if len(os.Args) < 3 {
-		fmt.Fprintln(os.Stderr, "usage: hyve create <name>")
+func create(cfg qemu.Config) {
+	conn, err := net.Dial("unix", socketPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "hyve: connect: %v\n", err)
 		os.Exit(1)
 	}
-
-	name := os.Args[2]
-
-	conn := connect()
 	defer conn.Close()
 
 	request := Request{
 		Command: "create",
-		Config: qemu.Config{
-			Name:   name,
-			CPUs:   2,
-			Memory: "512M",
-		},
+		Config:  cfg,
 	}
 
 	if err := json.NewEncoder(conn).Encode(request); err != nil {
@@ -200,7 +333,7 @@ func create() {
 		os.Exit(1)
 	}
 
-	fmt.Printf("VM %q created\n", name)
+	fmt.Printf("VM %q created\n", cfg.Name)
 }
 
 func stop() {
