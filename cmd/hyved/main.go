@@ -48,11 +48,13 @@ type managedVM struct {
 type VMManager struct {
 	mu  sync.Mutex
 	vms map[string]*managedVM
+	store *vm.Store
 }
 
-func NewVMManager() *VMManager {
+func NewVMManager(store *vm.Store) *VMManager {
 	return &VMManager{
-		vms: make(map[string]*managedVM),
+		vms:   make(map[string]*managedVM),
+		store: store,
 	}
 }
 
@@ -157,6 +159,15 @@ func (m *VMManager) StopAll() {
 	}
 }
 
+func (m *VMManager) LoadDefinition(name string) (vm.Definition, error) {
+	return m.store.Load(name)
+}
+
+func (m *VMManager) Create(def vm.Definition) error {
+	return m.store.Create(def)
+}
+
+
 func main() {
 	if err := os.MkdirAll(filepath.Dir(socketPath), 0755); err != nil {
 		log.Fatal(err)
@@ -183,7 +194,8 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	manager := NewVMManager()
+	store := vm.NewStore(vm.DefaultStateDir)
+	manager := NewVMManager(store)
 
 	signalChan := make(chan os.Signal, 1)
 	signal.Notify(signalChan, syscall.SIGINT, syscall.SIGTERM)
@@ -238,8 +250,41 @@ func handleConnection(
 	}
 
 	switch request.Command {
+	case "create":
+		err := manager.Create(vm.Definition{
+			Name:   request.Config.Name,
+			CPUs:   request.Config.CPUs,
+			Memory: request.Config.Memory,
+		})
+
+		if err != nil {
+			_ = json.NewEncoder(conn).Encode(Response{
+			OK:    false,
+			Error: err.Error(),
+		})
+			return
+		}
+
+		_ = json.NewEncoder(conn).Encode(Response{
+			OK: true,
+		})
+
 	case "run":
-		err := manager.Start(ctx, request.Config)
+		def, err := manager.LoadDefinition(request.Config.Name)
+
+		if err != nil {
+			_ = json.NewEncoder(conn).Encode(Response{
+				OK:    false,
+				Error: err.Error(),
+			})
+			return
+		}
+
+		err = manager.Start(ctx, qemu.Config{
+			Name:   def.Name,
+			CPUs:   def.CPUs,
+			Memory: def.Memory,
+		})
 
 		if err != nil {
 			_ = json.NewEncoder(conn).Encode(Response{

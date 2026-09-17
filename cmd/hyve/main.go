@@ -42,6 +42,8 @@ func main() {
 	}
 
 	switch os.Args[1] {
+	case "create":
+		create()
 	case "run":
 		run()
 	case "list":
@@ -156,8 +158,49 @@ func list() {
 	writer.Flush()
 }
 
+func create() {
+	if len(os.Args) < 3 {
+		fmt.Fprintln(os.Stderr, "usage: hyve create <name>")
+		os.Exit(1)
+	}
+
+	name := os.Args[2]
+
+	conn := connect()
+	defer conn.Close()
+
+	request := Request{
+		Command: "create",
+		Config: qemu.Config{
+			Name:   name,
+			CPUs:   2,
+			Memory: "512M",
+		},
+	}
+
+	if err := json.NewEncoder(conn).Encode(request); err != nil {
+		fmt.Fprintf(os.Stderr, "hyve: send request: %v\n", err)
+		os.Exit(1)
+	}
+
+	var response Response
+
+	if err := json.NewDecoder(conn).Decode(&response); err != nil {
+		fmt.Fprintf(os.Stderr, "hyve: read response: %v\n", err)
+		os.Exit(1)
+	}
+
+	if !response.OK {
+		fmt.Fprintf(os.Stderr, "hyve: %s\n", response.Error)
+		os.Exit(1)
+	}
+
+	fmt.Printf("VM %q created\n", name)
+}
+
 func usage() {
 	fmt.Println("usage:")
+	fmt.Println("  hyve create <name>")
 	fmt.Println("  hyve run [name]")
 	fmt.Println("  hyve list")
 }
