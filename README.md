@@ -58,6 +58,8 @@ HYVE VM
 
 ## build
 
+The target OS is linux with activated KVM acceleration. For development you can run on MacOS in a dev container w/o KVM.
+
 ```
 go mod tidy
 make build

@@ -3,6 +3,7 @@ package qemu
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"syscall"
 )
@@ -21,6 +22,11 @@ func New() *QEMU {
 	return &QEMU{}
 }
 
+func kvmAvailable() bool {
+	_, err := os.Stat("/dev/kvm")
+	return err == nil
+}
+
 func (q *QEMU) Start(ctx context.Context, cfg Config) error {
 	if cfg.CPUs < 1 {
 		cfg.CPUs = 1
@@ -31,7 +37,6 @@ func (q *QEMU) Start(ctx context.Context, cfg Config) error {
 	}
 
 	args := []string{
-		"-enable-kvm",
 		"-name", cfg.Name,
 		"-m", cfg.Memory,
 		"-smp", fmt.Sprintf("%d", cfg.CPUs),
@@ -41,7 +46,15 @@ func (q *QEMU) Start(ctx context.Context, cfg Config) error {
 		"-monitor", "none",
 	}
 
-	q.cmd = exec.CommandContext(ctx, "qemu-system-x86_64", args...)
+	if kvmAvailable() {
+		args = append([]string{"-enable-kvm"}, args...)
+	}
+
+	q.cmd = exec.CommandContext(
+		ctx,
+		"qemu-system-x86_64",
+		args...,
+	)
 
 	if err := q.cmd.Start(); err != nil {
 		return fmt.Errorf("start qemu: %w", err)

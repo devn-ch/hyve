@@ -1,0 +1,19 @@
+{
+    "name": "HYVE Development",
+    "build": {
+        "dockerfile": "Dockerfile",
+        "context": ".."
+    },
+    "workspaceFolder": "/workspaces/hyve",
+    "runArgs": [
+        "--privileged"
+    ],
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "golang.go"
+            ]
+        }
+    },
+    "postCreateCommand": "go version && qemu-system-x86_64 --version && make"
+}
