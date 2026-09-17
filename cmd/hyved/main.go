@@ -1,4 +1,3 @@
-
 package main
 
 import (
@@ -9,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync"
 	"syscall"
 
 	"github.com/devn-ch/hyve/internal/qemu"
@@ -26,6 +26,65 @@ type Response struct {
 	Error string `json:"error,omitempty"`
 }
 
+type VMManager struct {
+	mu  sync.Mutex
+	vms map[string]*qemu.QEMU
+}
+
+func NewVMManager() *VMManager {
+	return &VMManager{
+		vms: make(map[string]*qemu.QEMU),
+	}
+}
+
+func (m *VMManager) Start(ctx context.Context, cfg qemu.Config) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if _, exists := m.vms[cfg.Name]; exists {
+		return os.ErrExist
+	}
+
+	vm := qemu.New()
+
+	if err := vm.Start(ctx, cfg); err != nil {
+		return err
+	}
+
+	m.vms[cfg.Name] = vm
+
+	go func() {
+		err := vm.Wait()
+
+		m.mu.Lock()
+		delete(m.vms, cfg.Name)
+		m.mu.Unlock()
+
+		if err != nil {
+			log.Printf("VM %q exited: %v", cfg.Name, err)
+		} else {
+			log.Printf("VM %q exited", cfg.Name)
+		}
+	}()
+
+	log.Printf("VM %q started", cfg.Name)
+
+	return nil
+}
+
+func (m *VMManager) StopAll() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for name, vm := range m.vms {
+		log.Printf("stopping VM %q", name)
+
+		if err := vm.Stop(); err != nil {
+			log.Printf("stop VM %q: %v", name, err)
+		}
+	}
+}
+
 func main() {
 	if err := os.MkdirAll(filepath.Dir(socketPath), 0755); err != nil {
 		log.Fatal(err)
@@ -37,7 +96,11 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer listener.Close()
+
+	defer func() {
+		listener.Close()
+		os.Remove(socketPath)
+	}()
 
 	if err := os.Chmod(socketPath, 0660); err != nil {
 		log.Fatal(err)
@@ -52,9 +115,18 @@ func main() {
 	)
 	defer cancel()
 
+	manager := NewVMManager()
+
 	go func() {
 		<-ctx.Done()
+
+		log.Println("hyved shutting down")
+
+		// Stop accepting new connections.
 		listener.Close()
+
+		// Stop all VMs owned by hyved.
+		manager.StopAll()
 	}()
 
 	for {
@@ -69,11 +141,15 @@ func main() {
 			}
 		}
 
-		go handleConnection(ctx, conn)
+		go handleConnection(ctx, manager, conn)
 	}
 }
 
-func handleConnection(ctx context.Context, conn net.Conn) {
+func handleConnection(
+	ctx context.Context,
+	manager *VMManager,
+	conn net.Conn,
+) {
 	defer conn.Close()
 
 	var request Request
@@ -88,9 +164,9 @@ func handleConnection(ctx context.Context, conn net.Conn) {
 
 	switch request.Command {
 	case "run":
-		q := qemu.New()
+		err := manager.Start(ctx, request.Config)
 
-		if err := q.Start(ctx, request.Config); err != nil {
+		if err != nil {
 			_ = json.NewEncoder(conn).Encode(Response{
 				OK:    false,
 				Error: err.Error(),
@@ -101,14 +177,6 @@ func handleConnection(ctx context.Context, conn net.Conn) {
 		_ = json.NewEncoder(conn).Encode(Response{
 			OK: true,
 		})
-
-		log.Printf("VM %q started", request.Config.Name)
-
-		go func() {
-			if err := q.Wait(); err != nil {
-				log.Printf("VM %q exited: %v", request.Config.Name, err)
-			}
-		}()
 
 	default:
 		_ = json.NewEncoder(conn).Encode(Response{

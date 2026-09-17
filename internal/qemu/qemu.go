@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"syscall"
 )
 
 type Config struct {
@@ -42,11 +43,21 @@ func (q *QEMU) Start(ctx context.Context, cfg Config) error {
 
 	q.cmd = exec.CommandContext(ctx, "qemu-system-x86_64", args...)
 
-	q.cmd.Stdout = nil
-	q.cmd.Stderr = nil
-
 	if err := q.cmd.Start(); err != nil {
 		return fmt.Errorf("start qemu: %w", err)
+	}
+
+	return nil
+}
+
+func (q *QEMU) Stop() error {
+	if q.cmd == nil || q.cmd.Process == nil {
+		return nil
+	}
+
+	// Graceful process termination.
+	if err := q.cmd.Process.Signal(syscall.SIGTERM); err != nil {
+		return fmt.Errorf("stop qemu: %w", err)
 	}
 
 	return nil
