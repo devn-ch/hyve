@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"text/tabwriter"
 
 	"github.com/devn-ch/hyve/internal/qemu"
+	"github.com/devn-ch/hyve/internal/vm"
 )
 
 const socketPath = "/run/hyve/hyved.sock"
@@ -21,6 +23,18 @@ type Response struct {
 	Error string `json:"error,omitempty"`
 }
 
+type VMInfo struct {
+	Name   string   `json:"name"`
+	State  vm.State `json:"state"`
+	CPUs   int      `json:"cpus"`
+	Memory string   `json:"memory"`
+}
+
+type ListResponse struct {
+	OK  bool     `json:"ok"`
+	VMs []VMInfo `json:"vms,omitempty"`
+}
+
 func main() {
 	if len(os.Args) < 2 {
 		usage()
@@ -30,10 +44,22 @@ func main() {
 	switch os.Args[1] {
 	case "run":
 		run()
+	case "list":
+		list()
 	default:
 		usage()
 		os.Exit(1)
 	}
+}
+
+func connect() net.Conn {
+	conn, err := net.Dial("unix", socketPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "hyve: connect to hyved: %v\n", err)
+		os.Exit(1)
+	}
+
+	return conn
 }
 
 func run() {
@@ -43,11 +69,7 @@ func run() {
 		name = os.Args[2]
 	}
 
-	conn, err := net.Dial("unix", socketPath)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "hyve: connect to hyved: %v\n", err)
-		os.Exit(1)
-	}
+	conn := connect()
 	defer conn.Close()
 
 	request := Request{
@@ -79,6 +101,63 @@ func run() {
 	fmt.Printf("VM %q started\n", name)
 }
 
+func list() {
+	conn := connect()
+	defer conn.Close()
+
+	request := Request{
+		Command: "list",
+	}
+
+	if err := json.NewEncoder(conn).Encode(request); err != nil {
+		fmt.Fprintf(os.Stderr, "hyve: send request: %v\n", err)
+		os.Exit(1)
+	}
+
+	var response ListResponse
+
+	if err := json.NewDecoder(conn).Decode(&response); err != nil {
+		fmt.Fprintf(os.Stderr, "hyve: read response: %v\n", err)
+		os.Exit(1)
+	}
+
+	if !response.OK {
+		fmt.Fprintln(os.Stderr, "hyve: list failed")
+		os.Exit(1)
+	}
+
+	if len(response.VMs) == 0 {
+		fmt.Println("No VMs.")
+		return
+	}
+
+	writer := tabwriter.NewWriter(
+		os.Stdout,
+		0,
+		4,
+		2,
+		' ',
+		0,
+	)
+
+	fmt.Fprintln(writer, "NAME\tSTATE\tCPU\tMEMORY")
+
+	for _, v := range response.VMs {
+		fmt.Fprintf(
+			writer,
+			"%s\t%s\t%d\t%s\n",
+			v.Name,
+			v.State,
+			v.CPUs,
+			v.Memory,
+		)
+	}
+
+	writer.Flush()
+}
+
 func usage() {
-	fmt.Println("usage: hyve run [name]")
+	fmt.Println("usage:")
+	fmt.Println("  hyve run [name]")
+	fmt.Println("  hyve list")
 }

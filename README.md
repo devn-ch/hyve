@@ -45,6 +45,17 @@ Micro-Hypervisor for virtual environments. As the alternative with less resource
                     └──────────────┘
 ```
 
+HYVE VM
+```
+              VM
+              │
+      ┌───────┼────────┐
+      │       │        │
+    State    QMP      QGA
+                       │
+                     Guest
+```
+
 ## build
 
 ```
