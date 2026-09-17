@@ -18,6 +18,8 @@ import (
 
 const socketPath = "/run/hyve/hyved.sock"
 
+const qmpDir = "/run/hyve/qmp"
+
 type Request struct {
 	Command string      `json:"command"`
 	Config  qemu.Config `json:"config"`
@@ -42,8 +44,9 @@ type ListResponse struct {
 }
 
 type managedVM struct {
-	info vm.VM
-	qemu *qemu.QEMU
+	info      vm.VM
+	qemu      *qemu.QEMU
+	qmpSocket string
 }
 
 type VMManager struct {
@@ -60,6 +63,11 @@ func NewVMManager(store *vm.Store) *VMManager {
 }
 
 func (m *VMManager) Start(ctx context.Context, cfg qemu.Config) error {
+	qmpSocket := filepath.Join(qmpDir, cfg.Name+".sock")
+	if err := os.MkdirAll(qmpDir, 0755); err != nil {
+		return fmt.Errorf("create QMP directory: %w", err)
+	}
+
 	m.mu.Lock()
 
 	if existing, exists := m.vms[cfg.Name]; exists {
@@ -76,11 +84,14 @@ func (m *VMManager) Start(ctx context.Context, cfg qemu.Config) error {
 			CPUs:   cfg.CPUs,
 			Memory: cfg.Memory,
 		},
-		qemu: qemu.New(),
+		qemu:      qemu.New(),
+		qmpSocket: qmpSocket,
 	}
 
 	m.vms[cfg.Name] = entry
 	m.mu.Unlock()
+
+	cfg.QMPSocket = qmpSocket
 
 	if err := entry.qemu.Start(ctx, cfg); err != nil {
 		m.mu.Lock()
@@ -180,24 +191,38 @@ func (m *VMManager) Stop(name string) error {
 		return fmt.Errorf("VM %q is not running", name)
 	}
 
-	switch entry.info.State {
-	case vm.StateRunning:
-		entry.info.State = vm.StateStopping
-	case vm.StateStopping:
-		m.mu.Unlock()
-		return fmt.Errorf("VM %q is already stopping", name)
-	default:
+	if entry.info.State != vm.StateRunning {
 		state := entry.info.State
 		m.mu.Unlock()
-		return fmt.Errorf("VM %q is not running (%s)", name, state)
+
+		return fmt.Errorf(
+			"VM %q is not running (%s)",
+			name,
+			state,
+		)
 	}
+
+	entry.info.State = vm.StateStopping
+
+	qmpSocket := entry.qmpSocket
 
 	m.mu.Unlock()
 
-	log.Printf("stopping VM %q", name)
+	log.Printf("stopping VM %q via QMP", name)
 
-	if err := entry.qemu.Stop(); err != nil {
-		return err
+	client, err := qemu.ConnectQMP(qmpSocket)
+	if err != nil {
+		return fmt.Errorf("connect to QMP: %w", err)
+	}
+
+	defer client.Close()
+
+	if err := client.SystemPowerdown(); err != nil {
+		return fmt.Errorf(
+			"QMP system_powerdown for VM %q: %w",
+			name,
+			err,
+		)
 	}
 
 	return nil

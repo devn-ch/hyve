@@ -4,48 +4,50 @@ Micro-Hypervisor for virtual environments. As the alternative with less resource
 
 ## Architecture
 
+### HYVE daemon (hyved)
 ```
-                    HYVE
-                     │
-             ┌───────┴───────┐
-             │     hyved     │
-             │     daemon    │
-             └───────┬───────┘
-                     │
-              VM lifecycle
-                     │
-             ┌───────▼───────┐
-             │     QEMU      │
-             │    + KVM      │
-             └───────────────┘
-                     │
-                ┌────▼────┐
-                │  Guest  │
-                │   VM    │
-                └─────────┘
-```
-
-## CLI
-
-```
-                    ┌──────────────┐
-                    │     CLI      │
-                    └──────┬───────┘
-                           │
-                    ┌──────▼───────┐
-                    │   VM Manager │
-                    └──────┬───────┘
-                           │
-                    ┌──────▼───────┐
-                    │ QEMU Driver  │
-                    └──────┬───────┘
-                           │
-                    ┌──────▼───────┐
-                    │    QEMU      │
-                    └──────────────┘
+             HYVE
+              │
+        ┌─────┴────┐
+        │  hyved   │
+        │  daemon  │
+        └─────┬────┘
+              │
+         VM lifecycle
+              │
+       ┌──────▼──────┐
+       │     QEMU    │
+       │    + KVM    │
+       └─────────────┘
+              │
+         ┌────▼────┐
+         │  Guest  │
+         │   VM    │
+         └─────────┘
 ```
 
-HYVE VM
+### HYVE CLI
+
+```
+       ┌──────────────┐
+       │     CLI      │
+       └──────┬───────┘
+              │
+       ┌──────▼───────┐
+       │   VM Manager │
+       └──────┬───────┘
+              │
+       ┌──────▼───────┐
+       │ QEMU Driver  │
+       └──────┬───────┘
+              │
+       ┌──────▼───────┐
+       │    QEMU      │
+       └──────────────┘
+```
+
+### HYVE - VM
+
 ```
               VM
               │
@@ -54,6 +56,28 @@ HYVE VM
     State    QMP      QGA
                        │
                      Guest
+```
+
+### HYVE - QMP and QGA
+```
+            HYVE
+             │
+        ┌────┴────┐
+        │         │
+       QMP       QGA
+        │         │
+   lifecycle  guest interaction
+        │         │
+        └─────┬───┘
+              │
+             QEMU
+              │
+        ┌─────┴─────┐
+        │           │
+      disk       network
+        │           │
+        ▼           ▼
+     Guest OS      NIC
 ```
 
 ## build

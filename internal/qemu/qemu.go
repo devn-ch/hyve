@@ -9,9 +9,10 @@ import (
 )
 
 type Config struct {
-	Name   string
-	CPUs   int
-	Memory string
+	Name      string
+	CPUs      int
+	Memory    string
+	QMPSocket string
 }
 
 type QEMU struct {
@@ -44,6 +45,13 @@ func (q *QEMU) Start(ctx context.Context, cfg Config) error {
 		"-nographic",
 		"-serial", "stdio",
 		"-monitor", "none",
+	}
+
+	if cfg.QMPSocket != "" {
+		args = append(args,
+			"-qmp",
+			fmt.Sprintf("unix:%s,server=on,wait=off", cfg.QMPSocket),
+		)
 	}
 
 	if kvmAvailable() {
