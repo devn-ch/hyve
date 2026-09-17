@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 )
 
@@ -13,6 +14,7 @@ type Definition struct {
 	Name   string `json:"name"`
 	CPUs   int    `json:"cpus"`
 	Memory string `json:"memory"`
+	Disk   string `json:"disk"`
 }
 
 type Store struct {
@@ -38,6 +40,10 @@ func (s *Store) Create(def Definition) error {
 		def.Memory = "512M"
 	}
 
+	if def.Disk == "" {
+		def.Disk = "disk.qcow2"
+	}
+
 	vmDir := filepath.Join(s.BaseDir, def.Name)
 
 	if _, err := os.Stat(vmDir); err == nil {
@@ -50,15 +56,45 @@ func (s *Store) Create(def Definition) error {
 		return fmt.Errorf("create VM directory: %w", err)
 	}
 
+	diskPath := filepath.Join(vmDir, def.Disk)
+
+	if err := createDisk(diskPath); err != nil {
+		_ = os.RemoveAll(vmDir)
+		return err
+	}
+
 	data, err := json.MarshalIndent(def, "", "  ")
 	if err != nil {
+		_ = os.RemoveAll(vmDir)
 		return fmt.Errorf("encode VM definition: %w", err)
 	}
 
 	path := filepath.Join(vmDir, "vm.json")
 
 	if err := os.WriteFile(path, data, 0644); err != nil {
+		_ = os.RemoveAll(vmDir)
 		return fmt.Errorf("write VM definition: %w", err)
+	}
+
+	return nil
+}
+
+func createDisk(path string) error {
+	cmd := exec.Command(
+		"qemu-img",
+		"create",
+		"-f", "qcow2",
+		path,
+		"10G",
+	)
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf(
+			"create disk: %w: %s",
+			err,
+			string(output),
+		)
 	}
 
 	return nil

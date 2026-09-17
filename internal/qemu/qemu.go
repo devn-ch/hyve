@@ -12,6 +12,7 @@ type Config struct {
 	Name      string
 	CPUs      int
 	Memory    string
+	Disk      string
 	QMPSocket string
 }
 
