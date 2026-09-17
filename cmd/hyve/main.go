@@ -14,8 +14,8 @@ import (
 const socketPath = "/run/hyve/hyved.sock"
 
 type Request struct {
-	Command string     `json:"command"`
-	Config qemu.Config `json:"config"`
+	Command string      `json:"command"`
+	Config  qemu.Config `json:"config"`
 }
 
 type Response struct {
@@ -31,8 +31,9 @@ type VMInfo struct {
 }
 
 type ListResponse struct {
-	OK  bool     `json:"ok"`
-	VMs []VMInfo `json:"vms,omitempty"`
+	OK    bool     `json:"ok"`
+	Error string   `json:"error,omitempty"`
+	VMs   []VMInfo `json:"vms,omitempty"`
 }
 
 func main() {
@@ -48,6 +49,10 @@ func main() {
 		run()
 	case "list":
 		list()
+	case "stop":
+		stop()
+	case "destroy":
+		destroy()
 	default:
 		usage()
 		os.Exit(1)
@@ -198,9 +203,87 @@ func create() {
 	fmt.Printf("VM %q created\n", name)
 }
 
+func stop() {
+	if len(os.Args) < 3 {
+		fmt.Fprintln(os.Stderr, "hyve: VM name is required")
+		os.Exit(1)
+	}
+
+	name := os.Args[2]
+
+	conn := connect()
+	defer conn.Close()
+
+	request := Request{
+		Command: "stop",
+		Config: qemu.Config{
+			Name: name,
+		},
+	}
+
+	if err := json.NewEncoder(conn).Encode(request); err != nil {
+		fmt.Fprintf(os.Stderr, "hyve: send request: %v\n", err)
+		os.Exit(1)
+	}
+
+	var response Response
+
+	if err := json.NewDecoder(conn).Decode(&response); err != nil {
+		fmt.Fprintf(os.Stderr, "hyve: read response: %v\n", err)
+		os.Exit(1)
+	}
+
+	if !response.OK {
+		fmt.Fprintf(os.Stderr, "hyve: %s\n", response.Error)
+		os.Exit(1)
+	}
+
+	fmt.Printf("VM %q stopped\n", name)
+}
+
+func destroy() {
+	if len(os.Args) < 3 {
+		fmt.Fprintln(os.Stderr, "hyve: VM name is required")
+		os.Exit(1)
+	}
+
+	name := os.Args[2]
+
+	conn := connect()
+	defer conn.Close()
+
+	request := Request{
+		Command: "destroy",
+		Config: qemu.Config{
+			Name: name,
+		},
+	}
+
+	if err := json.NewEncoder(conn).Encode(request); err != nil {
+		fmt.Fprintf(os.Stderr, "hyve: send request: %v\n", err)
+		os.Exit(1)
+	}
+
+	var response Response
+
+	if err := json.NewDecoder(conn).Decode(&response); err != nil {
+		fmt.Fprintf(os.Stderr, "hyve: read response: %v\n", err)
+		os.Exit(1)
+	}
+
+	if !response.OK {
+		fmt.Fprintf(os.Stderr, "hyve: %s\n", response.Error)
+		os.Exit(1)
+	}
+
+	fmt.Printf("VM %q destroyed\n", name)
+}
+
 func usage() {
 	fmt.Println("usage:")
 	fmt.Println("  hyve create <name>")
 	fmt.Println("  hyve run [name]")
 	fmt.Println("  hyve list")
+	fmt.Println("  hyve stop <name>")
+	fmt.Println("  hyve destroy <name>")
 }

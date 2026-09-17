@@ -19,7 +19,7 @@ import (
 const socketPath = "/run/hyve/hyved.sock"
 
 type Request struct {
-	Command string     `json:"command"`
+	Command string      `json:"command"`
 	Config  qemu.Config `json:"config"`
 }
 
@@ -36,8 +36,9 @@ type VMInfo struct {
 }
 
 type ListResponse struct {
-	OK  bool     `json:"ok"`
-	VMs []VMInfo `json:"vms,omitempty"`
+	OK    bool     `json:"ok"`
+	Error string   `json:"error,omitempty"`
+	VMs   []VMInfo `json:"vms,omitempty"`
 }
 
 type managedVM struct {
@@ -46,8 +47,8 @@ type managedVM struct {
 }
 
 type VMManager struct {
-	mu  sync.Mutex
-	vms map[string]*managedVM
+	mu    sync.Mutex
+	vms   map[string]*managedVM
 	store *vm.Store
 }
 
@@ -118,22 +119,33 @@ func (m *VMManager) Start(ctx context.Context, cfg qemu.Config) error {
 	return nil
 }
 
-func (m *VMManager) List() []VMInfo {
+func (m *VMManager) List() ([]VMInfo, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	result := make([]VMInfo, 0, len(m.vms))
+	definitions, err := m.store.List()
+	if err != nil {
+		return nil, err
+	}
 
-	for _, entry := range m.vms {
+	result := make([]VMInfo, 0, len(definitions))
+
+	for _, def := range definitions {
+		state := vm.StateStopped
+
+		if entry, exists := m.vms[def.Name]; exists {
+			state = entry.info.State
+		}
+
 		result = append(result, VMInfo{
-			Name:   entry.info.Name,
-			State:  entry.info.State,
-			CPUs:   entry.info.CPUs,
-			Memory: entry.info.Memory,
+			Name:   def.Name,
+			State:  state,
+			CPUs:   def.CPUs,
+			Memory: def.Memory,
 		})
 	}
 
-	return result
+	return result, nil
 }
 
 func (m *VMManager) StopAll() {
@@ -159,6 +171,66 @@ func (m *VMManager) StopAll() {
 	}
 }
 
+func (m *VMManager) Stop(name string) error {
+	m.mu.Lock()
+
+	entry, exists := m.vms[name]
+	if !exists {
+		m.mu.Unlock()
+		return fmt.Errorf("VM %q is not running", name)
+	}
+
+	switch entry.info.State {
+	case vm.StateRunning:
+		entry.info.State = vm.StateStopping
+	case vm.StateStopping:
+		m.mu.Unlock()
+		return fmt.Errorf("VM %q is already stopping", name)
+	default:
+		state := entry.info.State
+		m.mu.Unlock()
+		return fmt.Errorf("VM %q is not running (%s)", name, state)
+	}
+
+	m.mu.Unlock()
+
+	log.Printf("stopping VM %q", name)
+
+	if err := entry.qemu.Stop(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *VMManager) Destroy(name string) error {
+	m.mu.Lock()
+
+	if entry, exists := m.vms[name]; exists {
+		switch entry.info.State {
+		case vm.StateRunning, vm.StateStarting, vm.StateStopping:
+			m.mu.Unlock()
+			return fmt.Errorf(
+				"VM %q is still running (%s)",
+				name,
+				entry.info.State,
+			)
+		}
+
+		delete(m.vms, name)
+	}
+
+	m.mu.Unlock()
+
+	if err := m.store.Delete(name); err != nil {
+		return err
+	}
+
+	log.Printf("destroyed VM %q", name)
+
+	return nil
+}
+
 func (m *VMManager) LoadDefinition(name string) (vm.Definition, error) {
 	return m.store.Load(name)
 }
@@ -166,7 +238,6 @@ func (m *VMManager) LoadDefinition(name string) (vm.Definition, error) {
 func (m *VMManager) Create(def vm.Definition) error {
 	return m.store.Create(def)
 }
-
 
 func main() {
 	if err := os.MkdirAll(filepath.Dir(socketPath), 0755); err != nil {
@@ -259,9 +330,9 @@ func handleConnection(
 
 		if err != nil {
 			_ = json.NewEncoder(conn).Encode(Response{
-			OK:    false,
-			Error: err.Error(),
-		})
+				OK:    false,
+				Error: err.Error(),
+			})
 			return
 		}
 
@@ -298,10 +369,49 @@ func handleConnection(
 			OK: true,
 		})
 
+	case "stop":
+		err := manager.Stop(request.Config.Name)
+
+		if err != nil {
+			_ = json.NewEncoder(conn).Encode(Response{
+				OK:    false,
+				Error: err.Error(),
+			})
+			return
+		}
+
+		_ = json.NewEncoder(conn).Encode(Response{
+			OK: true,
+		})
+
+	case "destroy":
+		err := manager.Destroy(request.Config.Name)
+
+		if err != nil {
+			_ = json.NewEncoder(conn).Encode(Response{
+				OK:    false,
+				Error: err.Error(),
+			})
+			return
+		}
+
+		_ = json.NewEncoder(conn).Encode(Response{
+			OK: true,
+		})
+
 	case "list":
+		vms, err := manager.List()
+		if err != nil {
+			_ = json.NewEncoder(conn).Encode(ListResponse{
+				OK:    false,
+				Error: err.Error(),
+			})
+			return
+		}
+
 		_ = json.NewEncoder(conn).Encode(ListResponse{
 			OK:  true,
-			VMs: manager.List(),
+			VMs: vms,
 		})
 
 	default:
