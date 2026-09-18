@@ -29,6 +29,7 @@ type Config struct {
 	Drives        []Drive
 	BootFromCDROM bool
 	QMPSocket     string
+	ConsoleSocket string
 }
 
 type QEMU struct {
@@ -57,9 +58,8 @@ func (q *QEMU) Start(ctx context.Context, cfg Config) error {
 		"-name", cfg.Name,
 		"-m", cfg.Memory,
 		"-smp", fmt.Sprintf("%d", cfg.CPUs),
-		"-nodefaults",
+		"-cpu", "host",
 		"-nographic",
-		"-serial", "stdio",
 		"-monitor", "none",
 	}
 
