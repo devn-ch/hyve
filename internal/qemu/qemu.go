@@ -22,13 +22,22 @@ type Drive struct {
 	ReadOnly bool
 }
 
+type ConsoleType string
+
+const (
+	ConsoleVNC    ConsoleType = "vnc"
+	ConsoleSerial ConsoleType = "serial"
+)
+
 type Config struct {
 	Name          string
 	CPUs          int
 	Memory        string
 	Drives        []Drive
 	BootFromCDROM bool
+
 	QMPSocket     string
+	ConsoleType   ConsoleType
 	ConsoleSocket string
 }
 
@@ -59,7 +68,7 @@ func (q *QEMU) Start(ctx context.Context, cfg Config) error {
 		"-m", cfg.Memory,
 		"-smp", fmt.Sprintf("%d", cfg.CPUs),
 		"-cpu", "host",
-		"-nographic",
+		"-display", "none",
 		"-monitor", "none",
 	}
 
@@ -104,6 +113,34 @@ func (q *QEMU) Start(ctx context.Context, cfg Config) error {
 
 	if kvmAvailable() {
 		args = append([]string{"-enable-kvm"}, args...)
+	}
+
+	switch cfg.ConsoleType {
+	case ConsoleVNC:
+		if cfg.ConsoleSocket == "" {
+			return fmt.Errorf("VNC console requires a console socket")
+		}
+
+		args = append(args,
+			"-vnc",
+			"unix:"+cfg.ConsoleSocket,
+		)
+
+	case ConsoleSerial:
+		if cfg.ConsoleSocket == "" {
+			return fmt.Errorf("serial console requires a console socket")
+		}
+
+		args = append(args,
+			"-serial",
+			"unix:"+cfg.ConsoleSocket+",server=on,wait=off",
+		)
+
+	case "":
+		// No console requested.
+
+	default:
+		return fmt.Errorf("unsupported console type %q", cfg.ConsoleType)
 	}
 
 	q.cmd = exec.CommandContext(

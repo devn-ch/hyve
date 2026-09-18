@@ -16,9 +16,11 @@ import (
 	"github.com/devn-ch/hyve/internal/vm"
 )
 
-const socketPath = "/run/hyve/hyved.sock"
-
-const qmpDir = "/run/hyve/qmp"
+const (
+	socketPath = "/run/hyve/hyved.sock"
+	qmpDir     = "/run/hyve/qmp"
+	consoleDir = "/run/hyve/console"
+)
 
 type Request struct {
 	Command string      `json:"command"`
@@ -44,9 +46,10 @@ type ListResponse struct {
 }
 
 type managedVM struct {
-	info      vm.VM
-	qemu      *qemu.QEMU
-	qmpSocket string
+	info          vm.VM
+	qemu          *qemu.QEMU
+	qmpSocket     string
+	consoleSocket string
 }
 
 type VMManager struct {
@@ -68,6 +71,21 @@ func (m *VMManager) Start(ctx context.Context, cfg qemu.Config) error {
 		return fmt.Errorf("create QMP directory: %w", err)
 	}
 
+	consoleSocket := filepath.Join(consoleDir, cfg.Name+".sock")
+	// Clean up any stale QMP or console sockets before starting the VM
+	if err := os.Remove(qmpSocket); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove stale QMP socket: %w", err)
+	}
+	if err := os.Remove(consoleSocket); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove stale console socket: %w", err)
+	}
+	// Console socket is optional, only create the directory if a console address is specified.
+	if cfg.ConsoleSocket == "" {
+		if err := os.MkdirAll(consoleDir, 0755); err != nil {
+			log.Fatalf("create console directory: %v", err)
+		}
+	}
+
 	m.mu.Lock()
 
 	if existing, exists := m.vms[cfg.Name]; exists {
@@ -84,14 +102,16 @@ func (m *VMManager) Start(ctx context.Context, cfg qemu.Config) error {
 			CPUs:   cfg.CPUs,
 			Memory: cfg.Memory,
 		},
-		qemu:      qemu.New(),
-		qmpSocket: qmpSocket,
+		qemu:          qemu.New(),
+		qmpSocket:     qmpSocket,
+		consoleSocket: consoleSocket,
 	}
 
 	m.vms[cfg.Name] = entry
 	m.mu.Unlock()
 
 	cfg.QMPSocket = qmpSocket
+	cfg.ConsoleSocket = consoleSocket
 
 	if err := entry.qemu.Start(ctx, cfg); err != nil {
 		m.mu.Lock()
@@ -110,19 +130,17 @@ func (m *VMManager) Start(ctx context.Context, cfg qemu.Config) error {
 	go func() {
 		err := entry.qemu.Wait()
 
+		_ = os.Remove(qmpSocket)
+		_ = os.Remove(consoleSocket)
+
 		m.mu.Lock()
+		defer m.mu.Unlock()
 
 		if err != nil {
 			entry.info.State = vm.StateExited
-		} else {
-			entry.info.State = vm.StateStopped
-		}
-
-		m.mu.Unlock()
-
-		if err != nil {
 			log.Printf("VM %q exited: %v", cfg.Name, err)
 		} else {
+			entry.info.State = vm.StateStopped
 			log.Printf("VM %q stopped", cfg.Name)
 		}
 	}()
@@ -414,6 +432,7 @@ func handleConnection(
 			Memory:        def.Memory,
 			Drives:        drives,
 			BootFromCDROM: true,
+			ConsoleType:   qemu.ConsoleVNC,
 		})
 
 		if err != nil {
