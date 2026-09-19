@@ -3,8 +3,10 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 	"text/tabwriter"
@@ -21,8 +23,9 @@ type Request struct {
 }
 
 type Response struct {
-	OK    bool   `json:"ok"`
-	Error string `json:"error,omitempty"`
+	OK            bool   `json:"ok"`
+	Error         string `json:"error,omitempty"`
+	ConsoleSocket string `json:"console_socket,omitempty"`
 }
 
 type VMInfo struct {
@@ -193,6 +196,8 @@ func main() {
 		stop()
 	case "destroy":
 		destroy()
+	case "console":
+		console()
 	default:
 		usage()
 		os.Exit(1)
@@ -412,6 +417,99 @@ func destroy() {
 	fmt.Printf("VM %q destroyed\n", name)
 }
 
+func console() {
+	if len(os.Args) != 3 {
+		fmt.Fprintln(os.Stderr, "usage: hyve console <name>")
+		os.Exit(1)
+	}
+
+	name := os.Args[2]
+
+	conn := connect()
+	defer conn.Close()
+
+	request := Request{
+		Command: "console",
+		Config: qemu.Config{
+			Name: name,
+		},
+	}
+
+	if err := json.NewEncoder(conn).Encode(request); err != nil {
+		fmt.Fprintf(os.Stderr, "hyve: send request: %v\n", err)
+		os.Exit(1)
+	}
+
+	var response Response
+
+	if err := json.NewDecoder(conn).Decode(&response); err != nil {
+		fmt.Fprintf(os.Stderr, "hyve: read response: %v\n", err)
+		os.Exit(1)
+	}
+
+	if !response.OK {
+		fmt.Fprintf(os.Stderr, "hyve: %s\n", response.Error)
+		os.Exit(1)
+	}
+
+	if response.ConsoleSocket == "" {
+		fmt.Fprintln(os.Stderr, "hyve: daemon returned no console socket")
+		os.Exit(1)
+	}
+
+	if _, err := os.Stat(response.ConsoleSocket); err != nil {
+		fmt.Fprintf(
+			os.Stderr,
+			"hyve: console socket %q is not available: %v\n",
+			response.ConsoleSocket,
+			err,
+		)
+		os.Exit(1)
+	}
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "hyve: create local VNC listener: %v\n", err)
+		os.Exit(1)
+	}
+	defer listener.Close()
+
+	port := listener.Addr().(*net.TCPAddr).Port
+
+	fmt.Printf("Connecting to VM %q on local VNC port %d...\n", name, port)
+
+	viewer := exec.Command(
+		"remote-viewer",
+		fmt.Sprintf("vnc://127.0.0.1:%d", port),
+	)
+
+	if err := viewer.Start(); err != nil {
+		fmt.Fprintf(os.Stderr, "hyve: start remote-viewer: %v\n", err)
+		os.Exit(1)
+	}
+
+	for {
+		tcpConn, err := listener.Accept()
+		if err != nil {
+			return
+		}
+
+		go func() {
+			defer tcpConn.Close()
+
+			unixConn, err := net.Dial("unix", response.ConsoleSocket)
+			if err != nil {
+				return
+			}
+			defer unixConn.Close()
+
+			go io.Copy(unixConn, tcpConn)
+			io.Copy(tcpConn, unixConn)
+		}()
+	}
+
+}
+
 func usage() {
 	fmt.Println("usage:")
 	fmt.Println("  hyve create <name>")
@@ -419,4 +517,5 @@ func usage() {
 	fmt.Println("  hyve list")
 	fmt.Println("  hyve stop <name>")
 	fmt.Println("  hyve destroy <name>")
+	fmt.Println("  hyve console <name>")
 }

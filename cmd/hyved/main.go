@@ -28,8 +28,9 @@ type Request struct {
 }
 
 type Response struct {
-	OK    bool   `json:"ok"`
-	Error string `json:"error,omitempty"`
+	OK            bool   `json:"ok"`
+	Error         string `json:"error,omitempty"`
+	ConsoleSocket string `json:"console_socket,omitempty"`
 }
 
 type VMInfo struct {
@@ -79,11 +80,9 @@ func (m *VMManager) Start(ctx context.Context, cfg qemu.Config) error {
 	if err := os.Remove(consoleSocket); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("remove stale console socket: %w", err)
 	}
-	// Console socket is optional, only create the directory if a console address is specified.
-	if cfg.ConsoleSocket == "" {
-		if err := os.MkdirAll(consoleDir, 0755); err != nil {
-			log.Fatalf("create console directory: %v", err)
-		}
+	// create the directory for the console socket
+	if err := os.MkdirAll(consoleDir, 0755); err != nil {
+		return fmt.Errorf("create console directory: %w", err)
 	}
 
 	m.mu.Lock()
@@ -490,6 +489,51 @@ func handleConnection(
 		_ = json.NewEncoder(conn).Encode(ListResponse{
 			OK:  true,
 			VMs: vms,
+		})
+
+	case "console":
+		manager.mu.Lock()
+		entry, ok := manager.vms[request.Config.Name]
+
+		if !ok {
+			manager.mu.Unlock()
+
+			_ = json.NewEncoder(conn).Encode(Response{
+				OK:    false,
+				Error: fmt.Sprintf("VM %q is not running", request.Config.Name),
+			})
+			return
+		}
+
+		if entry.info.State != vm.StateRunning {
+			state := entry.info.State
+			manager.mu.Unlock()
+
+			_ = json.NewEncoder(conn).Encode(Response{
+				OK: false,
+				Error: fmt.Sprintf(
+					"VM %q is not running (%s)",
+					request.Config.Name,
+					state,
+				),
+			})
+			return
+		}
+
+		consoleSocket := entry.consoleSocket
+		manager.mu.Unlock()
+
+		if consoleSocket == "" {
+			_ = json.NewEncoder(conn).Encode(Response{
+				OK:    false,
+				Error: fmt.Sprintf("VM %q has no console socket", request.Config.Name),
+			})
+			return
+		}
+
+		_ = json.NewEncoder(conn).Encode(Response{
+			OK:            true,
+			ConsoleSocket: consoleSocket,
 		})
 
 	default:
