@@ -119,6 +119,53 @@ hyve console test
                  hyve console is exited
 ```
 
+### Frontend concept
+
+```
+Browser
+   │
+   │ HTTPS
+   ▼
+HYVE Web UI
+   │
+   ├── VM management
+   ├── console access
+   └── API
+          │
+          ▼
+        hyved
+          │
+          ▼
+       QEMU
+```
+
+FE console
+```
+Browser
+   │
+   │ HTTPS / WebSocket
+   ▼
+HYVE Web Frontend
+   │
+   │ Unix socket
+   ▼
+QEMU VNC
+```
+
+Authentication und Authorization
+```
+User
+  ↓
+HTTPS
+  ↓
+HYVE
+  ├── is allowed to view VM "test"?
+  ├── is allowed to open Console?
+  ├── is allowed to stop VM?
+  └── is allowed to destroy VM?
+```
+That would keep QEMU independend.
+
 ## build
 
 The target OS is linux with activated KVM acceleration. For development you can run on MacOS in a dev container w/o KVM.
