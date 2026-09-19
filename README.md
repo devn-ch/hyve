@@ -86,7 +86,7 @@ Micro-Hypervisor for virtual environments. As the alternative with less resource
 hyve run test
       │
       ▼
-   QEMU startet
+   QEMU is started
       │
       ├── /run/hyve/qmp/test.sock
       └── /run/hyve/console/test.sock
@@ -101,6 +101,23 @@ hyve run test
       └── Console-Socket is deleted
 ```
 
+### Console lifecycle
+
+```
+hyve console test
+       │
+       ├── TCP listener is started
+       ├── remote-viewer is started
+       ├── proxy connection is opened
+       │
+       └── remote-viewer is exited
+                │
+                ├── Listener is closed
+                └── Proxy-connection is closed
+                       │
+                       ▼
+                 hyve console is exited
+```
 
 ## build
 

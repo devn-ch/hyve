@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 	"text/tabwriter"
 
 	"github.com/devn-ch/hyve/internal/qemu"
@@ -417,6 +418,36 @@ func destroy() {
 	fmt.Printf("VM %q destroyed\n", name)
 }
 
+func proxyVNC(tcpConn net.Conn, consoleSocket string) {
+	defer tcpConn.Close()
+
+	unixConn, err := net.Dial("unix", consoleSocket)
+	if err != nil {
+		return
+	}
+	defer unixConn.Close()
+
+	done := make(chan struct{}, 2)
+
+	go func() {
+		_, _ = io.Copy(unixConn, tcpConn)
+		done <- struct{}{}
+	}()
+
+	go func() {
+		_, _ = io.Copy(tcpConn, unixConn)
+		done <- struct{}{}
+	}()
+
+	<-done
+
+	// Closing both connections interrupts the other io.Copy.
+	_ = tcpConn.Close()
+	_ = unixConn.Close()
+
+	<-done
+}
+
 func console() {
 	if len(os.Args) != 3 {
 		fmt.Fprintln(os.Stderr, "usage: hyve console <name>")
@@ -476,7 +507,11 @@ func console() {
 
 	port := listener.Addr().(*net.TCPAddr).Port
 
-	fmt.Printf("Connecting to VM %q on local VNC port %d...\n", name, port)
+	fmt.Printf(
+		"Connecting to VM %q on local VNC port %d...\n",
+		name,
+		port,
+	)
 
 	viewer := exec.Command(
 		"remote-viewer",
@@ -488,26 +523,41 @@ func console() {
 		os.Exit(1)
 	}
 
-	for {
-		tcpConn, err := listener.Accept()
-		if err != nil {
-			return
-		}
+	var wg sync.WaitGroup
 
-		go func() {
-			defer tcpConn.Close()
+	acceptDone := make(chan struct{})
 
-			unixConn, err := net.Dial("unix", response.ConsoleSocket)
+	wg.Add(1)
+
+	go func() {
+		defer wg.Done()
+		defer close(acceptDone)
+
+		for {
+			tcpConn, err := listener.Accept()
 			if err != nil {
 				return
 			}
-			defer unixConn.Close()
 
-			go io.Copy(unixConn, tcpConn)
-			io.Copy(tcpConn, unixConn)
-		}()
-	}
+			wg.Add(1)
 
+			go func() {
+				defer wg.Done()
+				proxyVNC(tcpConn, response.ConsoleSocket)
+			}()
+		}
+	}()
+
+	// Wait until remote-viewer exits.
+	_ = viewer.Wait()
+
+	// Stop accepting new VNC connections.
+	_ = listener.Close()
+
+	// Wait until the accept loop and all active proxies have finished.
+	wg.Wait()
+
+	fmt.Printf("Console for VM %q closed\n", name)
 }
 
 func usage() {
