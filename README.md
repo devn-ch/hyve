@@ -1,87 +1,213 @@
 # HYVE
 
-Micro-Hypervisor for virtual environments. As the alternative with less resource requirements than hypvervisors like Proxmox.
+**Lightweight virtualization. Anywhere.**
+
+HYVE is a lightweight, API-first virtualization platform designed to run and manage virtual machines on x86_64 and ARM64 Linux hosts.
+
+Built on [QEMU](https://www.qemu.org/)/ [KVM](https://linux-kvm.org/), HYVE aims to make on-premises virtualization simpler, more secure, and easier to operate — from small business servers and edge devices to developer environments and homelabs.
+
+## Vision
+
+HYVE focuses on reducing operational complexity through centralized management, controlled remote access, and reliable VM lifecycle automation.
+
+Our goal is to provide a practical foundation for organizations that need flexible, locally operated infrastructure without the overhead of traditional virtualization platforms.
+
+## Key Features
+
+* Lightweight VM management powered by [QEMU](https://www.qemu.org/)/ [KVM](https://linux-kvm.org/)
+* x86_64 and ARM64 support
+* API-first architecture
+* Integrated VM console
+* QEMU Guest Agent integration
+* Recovery and health monitoring
+* Secure, centralized administration
+
+HYVE is currently under active development.
 
 ## Architecture
 
-### HYVE daemon (hyved)
+<details>
+ <summary><h3>HYVE daemon (hyved)</h3></summary>
 ```
-             HYVE
-              │
-        ┌─────┴────┐
-        │  hyved   │
-        │  daemon  │
-        └─────┬────┘
-              │
-         VM lifecycle
-              │
-       ┌──────▼──────┐
-       │     QEMU    │
-       │    + KVM    │
-       └─────────────┘
-              │
-         ┌────▼────┐
-         │  Guest  │
-         │   VM    │
-         └─────────┘
+      HYVE
+       │
+   ┌───┴────┐
+   │ hyved  │
+   │ daemon │
+   └───┬────┘
+       │
+  VM lifecycle
+       │
+   ┌───▼───┐
+   │ QEMU  │
+   │ + KVM │
+   └───────┘
+       │
+   ┌───▼───┐
+   │ Guest │
+   │  VM   │
+   └───────┘
+```
+</details>
+
+
+<details>
+ <summary><h3>HYVE CLI (hyve)</h3></summary>
+```
+   ┌──────────────┐
+   │     CLI      │
+   └──────┬───────┘
+         │
+   ┌──────▼───────┐
+   │   VM Manager │
+   └──────┬───────┘
+         │
+   ┌──────▼───────┐
+   │ QEMU Driver  │
+   └──────┬───────┘
+         │
+   ┌──────▼───────┐
+   │    QEMU      │
+   └──────────────┘
+```
+</details>
+
+
+<details>
+ <summary><h3>HYVE - VM</h3></summary>
+```
+            VM
+            │
+   ┌───────┼────────┐
+   │       │        │
+   State    QMP      QGA
+                     │
+                  Guest
+```
+</details>
+
+
+<details>
+ <summary><h3>HYVE - QMP and QGA</h3></summary>
+```
+         HYVE
+           │
+      ┌────┴────┐
+      │         │
+      QMP       QGA
+      │         │
+lifecycle  guest interaction
+      │         │
+      └────┬───┘
+           │
+          QEMU
+           │
+      ┌────┴─────┐
+      │          │
+   disk      network
+      │          │
+      ▼          ▼
+   Guest OS     NIC
 ```
 
-### HYVE CLI
-
 ```
-       ┌──────────────┐
-       │     CLI      │
-       └──────┬───────┘
-              │
-       ┌──────▼───────┐
-       │   VM Manager │
-       └──────┬───────┘
-              │
-       ┌──────▼───────┐
-       │ QEMU Driver  │
-       └──────┬───────┘
-              │
-       ┌──────▼───────┐
-       │    QEMU      │
-       └──────────────┘
+QMP socket  → HYVE ↔ QEMU
+QGA socket  → HYVE ↔ Guest Agent
+Console     → VNC/Serial
 ```
 
-### HYVE - VM
-
 ```
-              VM
-              │
-      ┌───────┼────────┐
-      │       │        │
-    State    QMP      QGA
-                       │
-                     Guest
+QEMU
+ ├── QMP  → Host-/VM-control
+ │
+ └── QGA  → Guest-control
+              ├── ping
+              ├── shutdown
+              └── network interfaces
 ```
 
-### HYVE - QMP and QGA
+HYVE stop with QGA and QMP v1
 ```
-            HYVE
+hyve stop <VM>
+      │
+      ▼
+     QGA
+      │
+      ├── guest-shutdown
+      │
+      ▼
+     wait
+      │
+      ├── successfully → done
+      │
+      └── Timeout
              │
-        ┌────┴────┐
-        │         │
-       QMP       QGA
-        │         │
-   lifecycle  guest interaction
-        │         │
-        └─────┬───┘
-              │
-             QEMU
-              │
-        ┌─────┴─────┐
-        │           │
-      disk       network
-        │           │
-        ▼           ▼
-     Guest OS      NIC
+             ▼
+            QMP
+       system_powerdown
+             │
+             ▼
+          Timeout
+             │
+             ▼
+          kill VM
 ```
 
-### HYVE - Socket lifecycle
+HYVE stop with QGA and QMP v2
+```
+hyve stop <VM>
+   │
+   ▼
+  QGA
+   │
+   └── guest-shutdown
+           │
+           ▼
+        Guest is shutting down
+        sauber herunter
+           │
+           ▼
+       QEMU exits
+```
 
+Activate the QEMU guest agent feature in your VM.
+```sh
+sudo systemctl enable --now qemu-guest-agent
+```
+
+</details>
+
+
+<details>
+ <summary><h3>HYPE Guest ping</h3></summary>
+```
+HYVE
+ │
+ │ Start()
+ ▼
+QEMU
+ │
+ │ virtio-serial
+ ▼
+Guest
+ │
+ │ qemu-ga
+ ▼
+QGA socket
+ │
+ ▼
+HYVE.GuestPing()
+ │
+ └── {"execute":"guest-ping"}
+             │
+             ▼
+        {"return":{}}
+```
+</details>
+
+
+<details>
+ <summary><h3>HYVE - Socket lifecycle</h3></summary>
 ```
 hyve run test
       │
@@ -100,9 +226,11 @@ hyve run test
       ├── QMP-Socket is deleted
       └── Console-Socket is deleted
 ```
+</details>
 
-### Console lifecycle
 
+<details>
+ <summary><h3>HYVE - Console lifecycle</h3></summary>
 ```
 hyve console test
        │
@@ -118,9 +246,12 @@ hyve console test
                        ▼
                  hyve console is exited
 ```
+</details>
 
-### Frontend concept
 
+<details>
+ <summary><h3>HYVE - Frontend concept</h3></summary>
+Web UI:
 ```
 Browser
    │
@@ -139,7 +270,7 @@ HYVE Web UI
        QEMU
 ```
 
-FE console
+FE console:
 ```
 Browser
    │
@@ -165,10 +296,11 @@ HYVE
   └── is allowed to destroy VM?
 ```
 That would keep QEMU independend.
+</details>
 
-## build
+## How to build
 
-The target OS is linux with activated KVM acceleration. For development you can run on MacOS in a dev container w/o KVM.
+The target OS is linux with KVM acceleration support. For development you can also run on MacOS in a dev container but w/o KVM feature.
 
 ```
 go mod tidy
@@ -181,7 +313,7 @@ make build
 mkdir tmp && cd tmp
 ```
 
-place a test ISO, here talos linux which requires graphical output instead of serial
+place a test ISO, e.g. talos linux which requires graphical output instead of serial
 ```sh
 wget https://factory.talos.dev/?arch=amd64&platform=nocloud&schematic-id=df23a85b80a3e6e1c04b009713cea469ddf98f3046d8892e7991c33dcb519fa2&target=cloud&version=1.14.1
 cd ..
@@ -196,7 +328,7 @@ shows the files in the directory /var/lib/hyve/vms/test an, which was created by
 sudo find /var/lib/hyve/vms/test -maxdepth 2 -type f -ls
 ```
 
-test QEMU configuration
+test your QEMU configuration
 ```sh
 sudo qemu-system-x86_64 \
   -enable-kvm \

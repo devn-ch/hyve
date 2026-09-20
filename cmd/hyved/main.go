@@ -19,6 +19,7 @@ import (
 const (
 	socketPath = "/run/hyve/hyved.sock"
 	qmpDir     = "/run/hyve/qmp"
+	qgaDir     = "/run/hyve/qga"
 	consoleDir = "/run/hyve/console"
 )
 
@@ -50,6 +51,7 @@ type managedVM struct {
 	info          vm.VM
 	qemu          *qemu.QEMU
 	qmpSocket     string
+	qgaSocket     string
 	consoleSocket string
 }
 
@@ -68,21 +70,35 @@ func NewVMManager(store *vm.Store) *VMManager {
 
 func (m *VMManager) Start(ctx context.Context, cfg qemu.Config) error {
 	qmpSocket := filepath.Join(qmpDir, cfg.Name+".sock")
+	qgaSocket := filepath.Join(qgaDir, cfg.Name+".sock")
+	consoleSocket := filepath.Join(consoleDir, cfg.Name+".sock")
+
+	// Clean up any stale sockets from previous runs of hyved.
+	// This is important because if a socket file already exists, QEMU will fail to start.
+	for _, socket := range []string{
+		qmpSocket,
+		qgaSocket,
+		consoleSocket,
+	} {
+		if err := os.Remove(socket); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove stale socket %s: %w", socket, err)
+		}
+	}
+
+	// Create the directory for the sockets
+
 	if err := os.MkdirAll(qmpDir, 0755); err != nil {
 		return fmt.Errorf("create QMP directory: %w", err)
 	}
 
-	consoleSocket := filepath.Join(consoleDir, cfg.Name+".sock")
-	// Clean up any stale QMP or console sockets before starting the VM
-	if err := os.Remove(qmpSocket); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("remove stale QMP socket: %w", err)
-	}
-	if err := os.Remove(consoleSocket); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("remove stale console socket: %w", err)
-	}
 	// create the directory for the console socket
 	if err := os.MkdirAll(consoleDir, 0755); err != nil {
 		return fmt.Errorf("create console directory: %w", err)
+	}
+
+	// Create the directory for the QGA socket
+	if err := os.MkdirAll(qgaDir, 0755); err != nil {
+		return fmt.Errorf("create QGA directory: %w", err)
 	}
 
 	m.mu.Lock()
@@ -103,6 +119,7 @@ func (m *VMManager) Start(ctx context.Context, cfg qemu.Config) error {
 		},
 		qemu:          qemu.New(),
 		qmpSocket:     qmpSocket,
+		qgaSocket:     qgaSocket,
 		consoleSocket: consoleSocket,
 	}
 
@@ -110,6 +127,7 @@ func (m *VMManager) Start(ctx context.Context, cfg qemu.Config) error {
 	m.mu.Unlock()
 
 	cfg.QMPSocket = qmpSocket
+	cfg.QGASocket = qgaSocket
 	cfg.ConsoleSocket = consoleSocket
 
 	if err := entry.qemu.Start(ctx, cfg); err != nil {
@@ -130,6 +148,7 @@ func (m *VMManager) Start(ctx context.Context, cfg qemu.Config) error {
 		err := entry.qemu.Wait()
 
 		_ = os.Remove(qmpSocket)
+		_ = os.Remove(qgaSocket)
 		_ = os.Remove(consoleSocket)
 
 		m.mu.Lock()

@@ -37,12 +37,14 @@ type Config struct {
 	BootFromCDROM bool
 
 	QMPSocket     string
+	QGASocket     string
 	ConsoleType   ConsoleType
 	ConsoleSocket string
 }
 
 type QEMU struct {
 	cmd *exec.Cmd
+	qga string
 }
 
 func New() *QEMU {
@@ -141,6 +143,21 @@ func (q *QEMU) Start(ctx context.Context, cfg Config) error {
 
 	default:
 		return fmt.Errorf("unsupported console type %q", cfg.ConsoleType)
+	}
+
+	q.qga = cfg.QGASocket
+	if cfg.QGASocket != "" {
+		args = append(args,
+			"-chardev",
+			fmt.Sprintf(
+				"socket,id=qga0,path=%s,server=on,wait=off",
+				cfg.QGASocket,
+			),
+			"-device",
+			"virtio-serial",
+			"-device",
+			"virtserialport,chardev=qga0,name=org.qemu.guest_agent.0",
+		)
 	}
 
 	q.cmd = exec.CommandContext(
