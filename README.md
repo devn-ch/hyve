@@ -305,6 +305,39 @@ HYVE
 That would keep QEMU independend.
 </details>
 
+<details>
+ <summary><h3>HYVE - Bridge networking</h3></summary>
+
+```
+HYVE Config
+    │
+    ▼
+NetworkConfig{
+    Mode:      NetworkBridge,
+    Interface: "br0",
+}
+    │
+    ▼
+networkArgs()
+    │
+    ├── -netdev bridge,id=net0,br=br0
+    └── -device virtio-net-pci,netdev=net0
+    │
+    ▼
+QEMU
+    │
+    ▼
+Guest ens3
+    │
+    ▼
+DHCP
+    │
+    ▼
+192.168.0.42/24
+```
+</details>
+
+
 ## How to build
 
 The target OS is linux with KVM acceleration support. For development you can also run on MacOS in a dev container but w/o KVM feature.

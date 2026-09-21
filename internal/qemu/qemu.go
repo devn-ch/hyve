@@ -36,6 +36,8 @@ type Config struct {
 	Drives        []Drive
 	BootFromCDROM bool
 
+	Network NetworkConfig
+
 	QMPSocket     string
 	QGASocket     string
 	ConsoleType   ConsoleType
@@ -159,6 +161,13 @@ func (q *QEMU) Start(ctx context.Context, cfg Config) error {
 			"virtserialport,chardev=qga0,name=org.qemu.guest_agent.0",
 		)
 	}
+
+	network, err := networkArgs(cfg.Network)
+	if err != nil {
+		return err
+	}
+
+	args = append(args, network...)
 
 	q.cmd = exec.CommandContext(
 		ctx,

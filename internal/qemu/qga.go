@@ -22,40 +22,111 @@ type qgaError struct {
 	Desc  string `json:"desc"`
 }
 
+type GuestNetworkInterface struct {
+	Name            string           `json:"name"`
+	HardwareAddress string           `json:"hardware-address"`
+	IPAddresses     []GuestIPAddress `json:"ip-addresses"`
+}
+
+type GuestIPAddress struct {
+	Type    string `json:"ip-address-type"`
+	Address string `json:"ip-address"`
+	Prefix  int    `json:"prefix"`
+}
+
 func (q *QEMU) GuestPing() error {
 	if q.qga == "" {
 		return fmt.Errorf("QGA socket is not configured")
 	}
 
-	conn, err := net.DialTimeout("unix", q.qga, 2*time.Second)
+	_, err := qgaExecute(q.qga, "guest-ping", nil)
+	return err
+}
+
+func (q *QEMU) GuestNetworkInterfaces() ([]GuestNetworkInterface, error) {
+	if q.qga == "" {
+		return nil, fmt.Errorf("QGA socket is not configured")
+	}
+
+	data, err := qgaExecute(
+		q.qga,
+		"guest-network-get-interfaces",
+		nil,
+	)
 	if err != nil {
-		return fmt.Errorf("connect to QGA: %w", err)
-	}
-	defer conn.Close()
-
-	if err := conn.SetDeadline(time.Now().Add(2 * time.Second)); err != nil {
-		return fmt.Errorf("set QGA deadline: %w", err)
+		return nil, err
 	}
 
-	_, err = conn.Write([]byte(`{"execute":"guest-ping"}` + "\n"))
-	if err != nil {
-		return fmt.Errorf("send QGA request: %w", err)
-	}
+	var interfaces []GuestNetworkInterface
 
-	var resp qgaResponse
-
-	decoder := json.NewDecoder(conn)
-	if err := decoder.Decode(&resp); err != nil {
-		return fmt.Errorf("read QGA response: %w", err)
-	}
-
-	if resp.Error != nil {
-		return fmt.Errorf(
-			"QGA guest-ping failed: %s: %s",
-			resp.Error.Class,
-			resp.Error.Desc,
+	if err := json.Unmarshal(data, &interfaces); err != nil {
+		return nil, fmt.Errorf(
+			"decode network interfaces: %w",
+			err,
 		)
 	}
 
-	return nil
+	return interfaces, nil
+}
+
+func qgaExecute(
+	socket string,
+	command string,
+	arguments map[string]interface{},
+) (json.RawMessage, error) {
+	conn, err := net.DialTimeout(
+		"unix",
+		socket,
+		2*time.Second,
+	)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"connect to QGA: %w",
+			err,
+		)
+	}
+	defer conn.Close()
+
+	if err := conn.SetDeadline(
+		time.Now().Add(2 * time.Second),
+	); err != nil {
+		return nil, fmt.Errorf(
+			"set QGA deadline: %w",
+			err,
+		)
+	}
+
+	request := qgaRequest{
+		Execute:   command,
+		Arguments: arguments,
+	}
+
+	if err := json.NewEncoder(conn).Encode(request); err != nil {
+		return nil, fmt.Errorf(
+			"send QGA request: %w",
+			err,
+		)
+	}
+
+	var response qgaResponse
+
+	decoder := json.NewDecoder(conn)
+
+	if err := decoder.Decode(&response); err != nil {
+		return nil, fmt.Errorf(
+			"read QGA response: %w",
+			err,
+		)
+	}
+
+	if response.Error != nil {
+		return nil, fmt.Errorf(
+			"QGA command %s failed: %s: %s",
+			command,
+			response.Error.Class,
+			response.Error.Desc,
+		)
+	}
+
+	return response.Return, nil
 }
