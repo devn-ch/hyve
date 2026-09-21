@@ -8,7 +8,8 @@ import (
 )
 
 type qgaRequest struct {
-	Execute string `json:"execute"`
+	Execute   string                 `json:"execute"`
+	Arguments map[string]interface{} `json:"arguments,omitempty"`
 }
 
 type qgaResponse struct {
@@ -32,19 +33,19 @@ func (q *QEMU) GuestPing() error {
 	}
 	defer conn.Close()
 
-	_ = conn.SetDeadline(time.Now().Add(2 * time.Second))
-
-	req := qgaRequest{
-		Execute: "guest-ping",
+	if err := conn.SetDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		return fmt.Errorf("set QGA deadline: %w", err)
 	}
 
-	if err := json.NewEncoder(conn).Encode(req); err != nil {
+	_, err = conn.Write([]byte(`{"execute":"guest-ping"}` + "\n"))
+	if err != nil {
 		return fmt.Errorf("send QGA request: %w", err)
 	}
 
 	var resp qgaResponse
 
-	if err := json.NewDecoder(conn).Decode(&resp); err != nil {
+	decoder := json.NewDecoder(conn)
+	if err := decoder.Decode(&resp); err != nil {
 		return fmt.Errorf("read QGA response: %w", err)
 	}
 
