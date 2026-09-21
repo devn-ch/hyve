@@ -121,7 +121,7 @@ build test ISO with QGA
 
 run a test, e.g. TestGuestPing
 ```sh
-go test ./internal/qemu -run TestGuestPing -v
+go test ./internal/qemu -run TestGuestPing -v -timeout 90s
 ```
 
 ## Troubleshooting
