@@ -28,6 +28,7 @@ HYVE is currently under active development.
 
 <details>
  <summary><h3>HYVE daemon (hyved)</h3></summary>
+
 ```
       HYVE
        │
@@ -53,6 +54,7 @@ HYVE is currently under active development.
 
 <details>
  <summary><h3>HYVE CLI (hyve)</h3></summary>
+
 ```
    ┌──────────────┐
    │     CLI      │
@@ -75,6 +77,7 @@ HYVE is currently under active development.
 
 <details>
  <summary><h3>HYVE - VM</h3></summary>
+
 ```
             VM
             │
@@ -89,6 +92,7 @@ HYVE is currently under active development.
 
 <details>
  <summary><h3>HYVE - QMP and QGA</h3></summary>
+
 ```
          HYVE
            │
@@ -174,12 +178,12 @@ Activate the QEMU guest agent feature in your VM.
 ```sh
 sudo systemctl enable --now qemu-guest-agent
 ```
-
 </details>
 
 
 <details>
  <summary><h3>HYPE Guest ping</h3></summary>
+
 ```
 HYVE
  │
@@ -208,6 +212,7 @@ HYVE.GuestPing()
 
 <details>
  <summary><h3>HYVE - Socket lifecycle</h3></summary>
+
 ```
 hyve run test
       │
@@ -231,6 +236,7 @@ hyve run test
 
 <details>
  <summary><h3>HYVE - Console lifecycle</h3></summary>
+
 ```
 hyve console test
        │
@@ -251,6 +257,7 @@ hyve console test
 
 <details>
  <summary><h3>HYVE - Frontend concept</h3></summary>
+
 Web UI:
 ```
 Browser
