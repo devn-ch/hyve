@@ -25,10 +25,11 @@ type Drive struct {
 }
 
 type Definition struct {
-	Name   string  `json:"name"`
-	CPUs   int     `json:"cpus"`
-	Memory string  `json:"memory"`
-	Drives []Drive `json:"drives"`
+	Name    string        `json:"name"`
+	CPUs    int           `json:"cpus"`
+	Memory  string        `json:"memory"`
+	Drives  []Drive       `json:"drives"`
+	Network NetworkConfig `json:"network,omitempty"`
 }
 
 type Store struct {

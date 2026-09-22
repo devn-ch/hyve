@@ -327,6 +327,24 @@ NetworkConfig
              ▼
      192.168.0.42/24
 ```
+
+```
+hyve create
+    ↓
+vm.Definition
+    ↓
+/var/lib/hyve/vms/<VM>/vm.json
+    ↓
+hyve run
+    ↓
+hyved
+    ↓
+qemu.Config.Network
+    ↓
+QEMU Bridge br0
+    ↓
+MAC 52:54:00:12:34:11
+```
 </details>
 
 

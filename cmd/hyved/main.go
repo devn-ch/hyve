@@ -399,6 +399,11 @@ func handleConnection(
 			CPUs:   request.Config.CPUs,
 			Memory: request.Config.Memory,
 			Drives: drives,
+			Network: vm.NetworkConfig{
+				Mode:      vm.NetworkMode(request.Config.Network.Mode),
+				Interface: request.Config.Network.Interface,
+				MAC:       request.Config.Network.MAC,
+			},
 		})
 
 		if err != nil {
@@ -445,10 +450,15 @@ func handleConnection(
 		}
 
 		err = manager.Start(ctx, qemu.Config{
-			Name:          def.Name,
-			CPUs:          def.CPUs,
-			Memory:        def.Memory,
-			Drives:        drives,
+			Name:   def.Name,
+			CPUs:   def.CPUs,
+			Memory: def.Memory,
+			Drives: drives,
+			Network: qemu.NetworkConfig{
+				Mode:      qemu.NetworkMode(def.Network.Mode),
+				Interface: def.Network.Interface,
+				MAC:       def.Network.MAC,
+			},
 			BootFromCDROM: true,
 			ConsoleType:   qemu.ConsoleVNC,
 		})

@@ -51,6 +51,9 @@ func parseCreateArgs(args []string) (qemu.Config, error) {
 		Name:   args[0],
 		CPUs:   1,
 		Memory: "512M",
+		Network: qemu.NetworkConfig{
+			Mode: qemu.NetworkNAT,
+		},
 	}
 
 	for i := 1; i < len(args); i++ {
@@ -126,6 +129,69 @@ func parseCreateArgs(args []string) (qemu.Config, error) {
 
 			cfg.Drives = append(cfg.Drives, drive)
 
+		case arg == "--network":
+			if i+1 >= len(args) {
+				return qemu.Config{}, fmt.Errorf("--network requires a value")
+			}
+
+			mode, err := parseNetworkMode(args[i+1])
+			if err != nil {
+				return qemu.Config{}, err
+			}
+
+			cfg.Network.Mode = mode
+			i++
+
+		case strings.HasPrefix(arg, "--network="):
+			value := strings.TrimPrefix(arg, "--network=")
+
+			mode, err := parseNetworkMode(value)
+			if err != nil {
+				return qemu.Config{}, err
+			}
+
+			cfg.Network.Mode = mode
+
+		case arg == "--interface":
+			if i+1 >= len(args) {
+				return qemu.Config{}, fmt.Errorf(
+					"--interface requires a value",
+				)
+			}
+
+			cfg.Network.Interface = args[i+1]
+			i++
+
+		case strings.HasPrefix(arg, "--interface="):
+			value := strings.TrimPrefix(arg, "--interface=")
+
+			if value == "" {
+				return qemu.Config{}, fmt.Errorf(
+					"--interface requires a value",
+				)
+			}
+
+			cfg.Network.Interface = value
+
+		case arg == "--mac":
+			if i+1 >= len(args) {
+				return qemu.Config{}, fmt.Errorf("--mac requires a value")
+			}
+
+			cfg.Network.MAC = args[i+1]
+			i++
+
+		case strings.HasPrefix(arg, "--mac="):
+			value := strings.TrimPrefix(arg, "--mac=")
+
+			if value == "" {
+				return qemu.Config{}, fmt.Errorf(
+					"--mac requires a value",
+				)
+			}
+
+			cfg.Network.MAC = value
+
 		default:
 			return qemu.Config{}, fmt.Errorf(
 				"unknown option %q",
@@ -134,7 +200,39 @@ func parseCreateArgs(args []string) (qemu.Config, error) {
 		}
 	}
 
+	switch cfg.Network.Mode {
+	case qemu.NetworkBridge, qemu.NetworkTAP:
+		if cfg.Network.Interface == "" {
+			return qemu.Config{}, fmt.Errorf(
+				"--interface is required for network mode %q",
+				cfg.Network.Mode,
+			)
+		}
+	}
+
 	return cfg, nil
+}
+
+func parseNetworkMode(value string) (qemu.NetworkMode, error) {
+	switch value {
+	case "nat":
+		return qemu.NetworkNAT, nil
+
+	case "bridge":
+		return qemu.NetworkBridge, nil
+
+	case "tap":
+		return qemu.NetworkTAP, nil
+
+	case "none":
+		return qemu.NetworkNone, nil
+
+	default:
+		return "", fmt.Errorf(
+			"unsupported network mode %q (expected nat, bridge, tap, or none)",
+			value,
+		)
+	}
 }
 
 func parseDrive(value string) (qemu.Drive, error) {
@@ -189,16 +287,22 @@ func main() {
 		}
 
 		create(cfg)
+
 	case "run":
 		run()
+
 	case "list":
 		list()
+
 	case "stop":
 		stop()
+
 	case "destroy":
 		destroy()
+
 	case "console":
 		console()
+
 	default:
 		usage()
 		os.Exit(1)
@@ -441,7 +545,6 @@ func proxyVNC(tcpConn net.Conn, consoleSocket string) {
 
 	<-done
 
-	// Closing both connections interrupts the other io.Copy.
 	_ = tcpConn.Close()
 	_ = unixConn.Close()
 
@@ -548,7 +651,7 @@ func console() {
 		}
 	}()
 
-	// Wait until remote-viewer exits.
+	// Wait until VNC viewer exits
 	_ = viewer.Wait()
 
 	// Stop accepting new VNC connections.
@@ -562,10 +665,18 @@ func console() {
 
 func usage() {
 	fmt.Println("usage:")
-	fmt.Println("  hyve create <name>")
+	fmt.Println("  hyve create <name> [options]")
 	fmt.Println("  hyve run [name]")
 	fmt.Println("  hyve list")
 	fmt.Println("  hyve stop <name>")
 	fmt.Println("  hyve destroy <name>")
 	fmt.Println("  hyve console <name>")
+	fmt.Println()
+	fmt.Println("create options:")
+	fmt.Println("  --cpus <n>            Number of CPUs")
+	fmt.Println("  --memory <size>       Memory size, e.g. 512M")
+	fmt.Println("  --drive <type:value>  disk:SIZE or cdrom:PATH")
+	fmt.Println("  --network <mode>      nat, bridge, tap, or none")
+	fmt.Println("  --interface <name>    Bridge or TAP interface")
+	fmt.Println("  --mac <address>       MAC address")
 }
