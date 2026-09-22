@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"text/tabwriter"
+	"time"
 
 	"github.com/devn-ch/hyve/internal/qemu"
 	"github.com/devn-ch/hyve/internal/vm"
@@ -24,16 +25,19 @@ type Request struct {
 }
 
 type Response struct {
-	OK            bool   `json:"ok"`
-	Error         string `json:"error,omitempty"`
-	ConsoleSocket string `json:"console_socket,omitempty"`
+	OK            bool    `json:"ok"`
+	Error         string  `json:"error,omitempty"`
+	ConsoleSocket string  `json:"console_socket,omitempty"`
+	Info          *VMInfo `json:"info,omitempty"`
 }
 
 type VMInfo struct {
-	Name   string   `json:"name"`
-	State  vm.State `json:"state"`
-	CPUs   int      `json:"cpus"`
-	Memory string   `json:"memory"`
+	Name       string                       `json:"name"`
+	State      vm.State                     `json:"state"`
+	CPUs       int                          `json:"cpus"`
+	Memory     string                       `json:"memory"`
+	Network    qemu.NetworkConfig           `json:"network"`
+	Interfaces []qemu.GuestNetworkInterface `json:"interfaces,omitempty"`
 }
 
 type ListResponse struct {
@@ -290,6 +294,9 @@ func main() {
 
 	case "run":
 		run()
+
+	case "info":
+		info()
 
 	case "list":
 		list()
@@ -663,10 +670,158 @@ func console() {
 	fmt.Printf("Console for VM %q closed\n", name)
 }
 
+func printVMInfo(info *VMInfo) {
+	fmt.Printf("VM:       %s\n", info.Name)
+	fmt.Printf("State:    %s\n", info.State)
+	fmt.Printf("CPU:      %d\n", info.CPUs)
+	fmt.Printf("Memory:   %s\n", info.Memory)
+
+	if info.Network.Mode != "" {
+		fmt.Printf("Network:  %s", info.Network.Mode)
+
+		if info.Network.Interface != "" {
+			fmt.Printf(" / %s", info.Network.Interface)
+		}
+
+		fmt.Println()
+
+		if info.Network.MAC != "" {
+			fmt.Printf("MAC:      %s\n", info.Network.MAC)
+		}
+	}
+
+	for _, iface := range info.Interfaces {
+		for _, ip := range iface.IPAddresses {
+			if ip.Type != "ipv4" || ip.Address == "127.0.0.1" {
+				continue
+			}
+
+			fmt.Printf(
+				"IPv4:     %s/%d (%s)\n",
+				ip.Address,
+				ip.Prefix,
+				iface.Name,
+			)
+		}
+	}
+}
+
+func hasGuestIPv4(info *VMInfo) bool {
+	for _, iface := range info.Interfaces {
+		for _, ip := range iface.IPAddresses {
+			if ip.Type != "ipv4" {
+				continue
+			}
+
+			if ip.Address == "127.0.0.1" {
+				continue
+			}
+
+			return true
+		}
+	}
+
+	return false
+}
+
+func info() {
+	name := "test"
+
+	if len(os.Args) >= 3 {
+		name = os.Args[2]
+	}
+
+	const (
+		maxAttempts = 30
+		retryDelay  = time.Second
+	)
+
+	spinner := []string{"|", "/", "-", "\\"}
+
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		conn := connect()
+
+		request := Request{
+			Command: "info",
+			Config: qemu.Config{
+				Name: name,
+			},
+		}
+
+		if err := json.NewEncoder(conn).Encode(request); err != nil {
+			conn.Close()
+			fmt.Fprintf(os.Stderr, "hyve: send request: %v\n", err)
+			os.Exit(1)
+		}
+
+		var response Response
+
+		if err := json.NewDecoder(conn).Decode(&response); err != nil {
+			conn.Close()
+			fmt.Fprintf(os.Stderr, "hyve: read response: %v\n", err)
+			os.Exit(1)
+		}
+
+		conn.Close()
+
+		if !response.OK {
+			if attempt < maxAttempts-1 {
+				fmt.Printf(
+					"\rWaiting for guest agent... %s (%d/%d)",
+					spinner[attempt%len(spinner)],
+					attempt+1,
+					maxAttempts,
+				)
+
+				time.Sleep(retryDelay)
+				continue
+			}
+
+			fmt.Printf("\r\033[K")
+			fmt.Fprintf(os.Stderr, "hyve: %s\n", response.Error)
+			os.Exit(1)
+		}
+
+		if response.Info == nil {
+			fmt.Fprintln(os.Stderr, "hyve: daemon returned no VM info")
+			os.Exit(1)
+		}
+
+		info := response.Info
+
+		// Für gestoppte VMs müssen wir nicht auf eine Guest-IP warten.
+		if info.State == vm.StateStopped {
+			printVMInfo(info)
+			return
+		}
+
+		// Bei laufenden VMs warten wir auf eine echte IPv4-Adresse.
+		if hasGuestIPv4(info) {
+			fmt.Printf("\r\033[K")
+			printVMInfo(info)
+			return
+		}
+
+		fmt.Printf(
+			"\rWaiting for guest network... %s (%d/%d)",
+			spinner[attempt%len(spinner)],
+			attempt+1,
+			maxAttempts,
+		)
+
+		time.Sleep(retryDelay)
+	}
+
+	fmt.Printf("\r\033[K")
+	fmt.Fprintln(os.Stderr, "hyve: timeout waiting for guest network")
+	os.Exit(1)
+}
+
 func usage() {
 	fmt.Println("usage:")
 	fmt.Println("  hyve create <name> [options]")
 	fmt.Println("  hyve run [name]")
+	fmt.Println("  hyve info [name]")
 	fmt.Println("  hyve list")
 	fmt.Println("  hyve stop <name>")
 	fmt.Println("  hyve destroy <name>")

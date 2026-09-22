@@ -29,16 +29,19 @@ type Request struct {
 }
 
 type Response struct {
-	OK            bool   `json:"ok"`
-	Error         string `json:"error,omitempty"`
-	ConsoleSocket string `json:"console_socket,omitempty"`
+	OK            bool    `json:"ok"`
+	Error         string  `json:"error,omitempty"`
+	ConsoleSocket string  `json:"console_socket,omitempty"`
+	Info          *VMInfo `json:"info,omitempty"`
 }
 
 type VMInfo struct {
-	Name   string   `json:"name"`
-	State  vm.State `json:"state"`
-	CPUs   int      `json:"cpus"`
-	Memory string   `json:"memory"`
+	Name       string                       `json:"name"`
+	State      vm.State                     `json:"state"`
+	CPUs       int                          `json:"cpus"`
+	Memory     string                       `json:"memory"`
+	Network    qemu.NetworkConfig           `json:"network"`
+	Interfaces []qemu.GuestNetworkInterface `json:"interfaces,omitempty"`
 }
 
 type ListResponse struct {
@@ -563,6 +566,62 @@ func handleConnection(
 		_ = json.NewEncoder(conn).Encode(Response{
 			OK:            true,
 			ConsoleSocket: consoleSocket,
+		})
+
+	case "info":
+		def, err := manager.LoadDefinition(request.Config.Name)
+		if err != nil {
+			_ = json.NewEncoder(conn).Encode(Response{
+				OK:    false,
+				Error: err.Error(),
+			})
+			return
+		}
+
+		manager.mu.Lock()
+
+		entry, running := manager.vms[request.Config.Name]
+
+		var state vm.State
+		var qemuVM *qemu.QEMU
+
+		if running {
+			state = entry.info.State
+			qemuVM = entry.qemu
+		} else {
+			state = vm.StateStopped
+		}
+
+		manager.mu.Unlock()
+
+		info := VMInfo{
+			Name:   def.Name,
+			State:  state,
+			CPUs:   def.CPUs,
+			Memory: def.Memory,
+			Network: qemu.NetworkConfig{
+				Mode:      qemu.NetworkMode(def.Network.Mode),
+				Interface: def.Network.Interface,
+				MAC:       def.Network.MAC,
+			},
+		}
+
+		if running && state == vm.StateRunning {
+			interfaces, err := qemuVM.GuestNetworkInterfaces()
+			if err != nil {
+				_ = json.NewEncoder(conn).Encode(Response{
+					OK:    false,
+					Error: fmt.Sprintf("guest network info: %v", err),
+				})
+				return
+			}
+
+			info.Interfaces = interfaces
+		}
+
+		_ = json.NewEncoder(conn).Encode(Response{
+			OK:   true,
+			Info: &info,
 		})
 
 	default:
