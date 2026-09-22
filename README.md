@@ -309,31 +309,23 @@ That would keep QEMU independend.
  <summary><h3>HYVE - Bridge networking</h3></summary>
 
 ```
-HYVE Config
+NetworkConfig
     │
-    ▼
-NetworkConfig{
-    Mode:      NetworkBridge,
-    Interface: "br0",
-}
-    │
-    ▼
-networkArgs()
-    │
-    ├── -netdev bridge,id=net0,br=br0
-    └── -device virtio-net-pci,netdev=net0
-    │
-    ▼
-QEMU
-    │
-    ▼
-Guest ens3
-    │
-    ▼
-DHCP
-    │
-    ▼
-192.168.0.42/24
+    ├── Mode: NetworkBridge
+    ├── Interface: br0
+    └── MAC: 52:54:00:12:34:56
+             │
+             ▼
+        QEMU virtio-net
+             │
+             ▼
+           br0
+             │
+             ▼
+          DHCP
+             │
+             ▼
+     192.168.0.42/24
 ```
 </details>
 
@@ -385,3 +377,30 @@ expose the VNC socket to VNC TCP for e.g. a remote-viewer app
 ```sh
 sudo socat TCP-LISTEN:5900,reuseaddr,fork UNIX-CONNECT:/tmp/test-vnc.sock
 ```
+
+
+## Testing
+
+<details>
+ <summary><h3>Testsuite for QEMU features</h3></summary>
+
+Testsuite for all QEMU features
+```sh
+go test ./internal/qemu -v -timeout 120s
+```
+
+Check QEMU-Network arguments
+```sh
+go test ./internal/qemu -run TestNetworkArgs -v
+```
+
+Check QEMU-Guest DCHP bridge
+```sh
+go test ./internal/qemu -run TestGuestDHCPBridge -v
+```
+
+Check QEMU-QGA Ping
+```sh
+go test ./internal/qemu -run TestGuestPing -v
+```
+</details>

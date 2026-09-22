@@ -18,14 +18,11 @@ type NetworkConfig struct {
 }
 
 func networkArgs(cfg NetworkConfig) ([]string, error) {
+	var netdev string
+
 	switch cfg.Mode {
 	case "", NetworkNAT:
-		return []string{
-			"-netdev",
-			"user,id=net0",
-			"-device",
-			"virtio-net-pci,netdev=net0",
-		}, nil
+		netdev = "user,id=net0"
 
 	case NetworkTAP:
 		if cfg.Interface == "" {
@@ -34,15 +31,10 @@ func networkArgs(cfg NetworkConfig) ([]string, error) {
 			)
 		}
 
-		return []string{
-			"-netdev",
-			fmt.Sprintf(
-				"tap,id=net0,ifname=%s,script=no,downscript=no",
-				cfg.Interface,
-			),
-			"-device",
-			"virtio-net-pci,netdev=net0",
-		}, nil
+		netdev = fmt.Sprintf(
+			"tap,id=net0,ifname=%s,script=no,downscript=no",
+			cfg.Interface,
+		)
 
 	case NetworkBridge:
 		if cfg.Interface == "" {
@@ -51,15 +43,10 @@ func networkArgs(cfg NetworkConfig) ([]string, error) {
 			)
 		}
 
-		return []string{
-			"-netdev",
-			fmt.Sprintf(
-				"bridge,id=net0,br=%s",
-				cfg.Interface,
-			),
-			"-device",
-			"virtio-net-pci,netdev=net0",
-		}, nil
+		netdev = fmt.Sprintf(
+			"bridge,id=net0,br=%s",
+			cfg.Interface,
+		)
 
 	case NetworkNone:
 		return nil, nil
@@ -70,4 +57,17 @@ func networkArgs(cfg NetworkConfig) ([]string, error) {
 			cfg.Mode,
 		)
 	}
+
+	device := "virtio-net-pci,netdev=net0"
+
+	if cfg.MAC != "" {
+		device += fmt.Sprintf(",mac=%s", cfg.MAC)
+	}
+
+	return []string{
+		"-netdev",
+		netdev,
+		"-device",
+		device,
+	}, nil
 }

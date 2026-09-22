@@ -3,9 +3,104 @@ package qemu
 import (
 	"context"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 )
+
+func TestNetworkArgs(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  NetworkConfig
+		want []string
+	}{
+		{
+			name: "nat",
+			cfg: NetworkConfig{
+				Mode: NetworkNAT,
+			},
+			want: []string{
+				"-netdev",
+				"user,id=net0",
+				"-device",
+				"virtio-net-pci,netdev=net0",
+			},
+		},
+		{
+			name: "nat with mac",
+			cfg: NetworkConfig{
+				Mode: NetworkNAT,
+				MAC:  "52:54:00:12:34:56",
+			},
+			want: []string{
+				"-netdev",
+				"user,id=net0",
+				"-device",
+				"virtio-net-pci,netdev=net0,mac=52:54:00:12:34:56",
+			},
+		},
+		{
+			name: "bridge",
+			cfg: NetworkConfig{
+				Mode:      NetworkBridge,
+				Interface: "br0",
+			},
+			want: []string{
+				"-netdev",
+				"bridge,id=net0,br=br0",
+				"-device",
+				"virtio-net-pci,netdev=net0",
+			},
+		},
+		{
+			name: "bridge with mac",
+			cfg: NetworkConfig{
+				Mode:      NetworkBridge,
+				Interface: "br0",
+				MAC:       "52:54:00:12:34:56",
+			},
+			want: []string{
+				"-netdev",
+				"bridge,id=net0,br=br0",
+				"-device",
+				"virtio-net-pci,netdev=net0,mac=52:54:00:12:34:56",
+			},
+		},
+		{
+			name: "tap",
+			cfg: NetworkConfig{
+				Mode:      NetworkTAP,
+				Interface: "tap0",
+			},
+			want: []string{
+				"-netdev",
+				"tap,id=net0,ifname=tap0,script=no,downscript=no",
+				"-device",
+				"virtio-net-pci,netdev=net0",
+			},
+		},
+		{
+			name: "none",
+			cfg: NetworkConfig{
+				Mode: NetworkNone,
+			},
+			want: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := networkArgs(tt.cfg)
+			if err != nil {
+				t.Fatalf("networkArgs() error = %v", err)
+			}
+
+			if !slices.Equal(got, tt.want) {
+				t.Fatalf("networkArgs() = %#v, want %#v", got, tt.want)
+			}
+		})
+	}
+}
 
 func TestGuestDHCPBridge(t *testing.T) {
 	image := qgaTestImage(t)
