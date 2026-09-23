@@ -1,0 +1,22 @@
+[Unit]
+Description=HYVE Micro Hypervisor Daemon
+Requires=hyve-network.service
+After=hyve-network.service
+ConditionPathExists=/dev/kvm
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/hyved
+Restart=on-failure
+RestartSec=2
+
+RuntimeDirectory=hyve
+RuntimeDirectoryMode=0755
+
+StateDirectory=hyve
+StateDirectoryMode=0755
+
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

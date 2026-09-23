@@ -1,0 +1,13 @@
+[Unit]
+Description=HYVE host bridge network
+Wants=network.target
+Before=network.target network-online.target hyved.service
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/hyve/setup-network.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

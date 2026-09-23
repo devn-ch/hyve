@@ -352,9 +352,30 @@ MAC 52:54:00:12:34:11
 
 The target OS is linux with KVM acceleration support. For development you can also run on MacOS in a dev container but w/o KVM feature.
 
-```
+```sh
 go mod tidy
 make build
+```
+
+## Prerequisites
+
+- docker
+- vscode with dev container
+
+in dev container
+```sh
+sudo apt update
+sudo apt install -y \
+    iproute2 \
+    isc-dhcp-client \
+    iputils-ping \
+    qemu-system-x86 \
+    qemu-utils
+```
+
+Check KVM is available:
+```sh
+ls -l /dev/kvm
 ```
 
 ## How to test a QEMU configuration
@@ -422,3 +443,74 @@ Check QEMU-QGA Ping
 go test ./internal/qemu -run TestGuestPing -v
 ```
 </details>
+
+<details>
+ <summary><h3>Network testing in the dev container</h3></summary>
+
+Setup network
+
+```sh
+sudo ./testdata/host/network-test.sh setup
+```
+
+start QEMU
+
+```sh
+sudo ./testdata/host/qemu-bridge-test.sh
+```
+
+set Test-IP for `br0`
+
+```sh
+sudo ip addr add 10.99.0.1/24 dev br0
+sudo ip link set br0 up
+```
+
+Dev Container / HY<VE Host
+```
+br0
+ │
+ └── hyve-tap0
+       │
+       ▼
+     QEMU
+       │
+       ▼
+   Debian Guest
+      ens3
+```
+
+Test Layer-3 path with ping to host
+```sh
+ping -c 4 10.99.0.1
+```
+
+```
+Debian Guest
+  10.99.0.2
+      │
+     ens3
+      │
+     QEMU
+      │
+ hyve-tap0
+      │
+     br0
+  10.99.0.1
+      │
+ Dev Container
+```
+
+Bridge: ✅
+TAP: ✅
+QEMU → TAP: ✅
+TAP → Bridge: ✅
+Guest NIC: ✅
+Guest → Host IP: ✅
+
+</details>
+
+## Releases
+
+see [CHANGELOG](CHANGELOG.md)
+
