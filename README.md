@@ -357,7 +357,7 @@ go mod tidy
 make build
 ```
 
-## Prerequisites
+## Prerequisites to build from source
 
 - docker
 - vscode with dev container
