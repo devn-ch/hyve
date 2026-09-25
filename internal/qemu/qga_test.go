@@ -17,28 +17,20 @@ func TestGuestPing(t *testing.T) {
 	image := qgaTestImage(t)
 	socket := filepath.Join(t.TempDir(), "qga.sock")
 
-	args := []string{
-		"-machine", "q35",
+	args := qemuBaseArgs()
+
+	args = append(args,
 		"-m", "512M",
 		"-smp", "1",
 		"-drive",
-		"file=" + image + ",if=virtio,format=qcow2",
+		"file="+image+",if=virtio,format=qcow2",
 		"-chardev",
-		"socket,id=qga,path=" + socket + ",server=on,wait=off",
+		"socket,id=qga,path="+socket+",server=on,wait=off",
 		"-device", "virtio-serial",
 		"-device",
 		"virtserialport,chardev=qga,name=org.qemu.guest_agent.0",
-		"-display", "none",
 		"-serial", "none",
-		"-monitor", "none",
-	}
-
-	if kvmAvailable() {
-		args = append([]string{
-			"-enable-kvm",
-			"-cpu", "host",
-		}, args...)
-	}
+	)
 
 	cmd := exec.Command(
 		"qemu-system-x86_64",

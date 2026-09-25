@@ -53,6 +53,23 @@ func New() *QEMU {
 	return &QEMU{}
 }
 
+func qemuBaseArgs() []string {
+	args := []string{
+		"-machine", "q35",
+		"-display", "none",
+		"-monitor", "none",
+	}
+
+	if kvmAvailable() {
+		args = append([]string{
+			"-enable-kvm",
+			"-cpu", "host",
+		}, args...)
+	}
+
+	return args
+}
+
 func kvmAvailable() bool {
 	_, err := os.Stat("/dev/kvm")
 	return err == nil
@@ -67,14 +84,13 @@ func (q *QEMU) Start(ctx context.Context, cfg Config) error {
 		cfg.Memory = "512M"
 	}
 
-	args := []string{
+	args := qemuBaseArgs()
+
+	args = append(args,
 		"-name", cfg.Name,
 		"-m", cfg.Memory,
 		"-smp", fmt.Sprintf("%d", cfg.CPUs),
-		"-cpu", "host",
-		"-display", "none",
-		"-monitor", "none",
-	}
+	)
 
 	if cfg.BootFromCDROM {
 		args = append(args,
@@ -113,10 +129,6 @@ func (q *QEMU) Start(ctx context.Context, cfg Config) error {
 			"-qmp",
 			fmt.Sprintf("unix:%s,server=on,wait=off", cfg.QMPSocket),
 		)
-	}
-
-	if kvmAvailable() {
-		args = append([]string{"-enable-kvm"}, args...)
 	}
 
 	switch cfg.ConsoleType {
