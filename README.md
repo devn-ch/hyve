@@ -453,7 +453,7 @@ Setup network
 sudo ./testdata/host/network-test.sh setup
 ```
 
-start QEMU
+test QEMU network bridge feature
 
 ```sh
 sudo ./testdata/host/qemu-bridge-test.sh
@@ -466,7 +466,7 @@ sudo ip addr add 10.99.0.1/24 dev br0
 sudo ip link set br0 up
 ```
 
-Dev Container / HY<VE Host
+Dev Container / HYVE Host
 ```
 br0
  │
