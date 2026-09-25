@@ -31,23 +31,23 @@ HYVE is currently under active development.
 
 ```
       HYVE
-       │
-   ┌───┴────┐
+        │
+   ┌──┴──┐
    │ hyved  │
    │ daemon │
-   └───┬────┘
-       │
+   └──┬──┘
+        │
   VM lifecycle
-       │
-   ┌───▼───┐
-   │ QEMU  │
-   │ + KVM │
-   └───────┘
-       │
-   ┌───▼───┐
-   │ Guest │
-   │  VM   │
-   └───────┘
+        │
+   ┌──▼──┐
+   │ QEMU   │
+   │ + KVM  │
+   └─────┘
+        │
+   ┌──▼──┐
+   │ Guest  │
+   │  VM    │
+   └─────┘
 ```
 </details>
 
@@ -56,21 +56,21 @@ HYVE is currently under active development.
  <summary><h3>HYVE CLI (hyve)</h3></summary>
 
 ```
-   ┌──────────────┐
-   │     CLI      │
-   └──────┬───────┘
-         │
-   ┌──────▼───────┐
-   │   VM Manager │
-   └──────┬───────┘
-         │
-   ┌──────▼───────┐
-   │ QEMU Driver  │
-   └──────┬───────┘
-         │
-   ┌──────▼───────┐
-   │    QEMU      │
-   └──────────────┘
+   ┌────────┐
+   │     CLI     │
+   └───┬────┘
+          │
+   ┌───▼────┐
+   │  VM Manager │
+   └───┬────┘
+          │
+   ┌───▼────┐
+   │ QEMU Driver │
+   └───┬────┘
+          │
+   ┌───▼────┐
+   │    QEMU     │
+   └────────┘
 ```
 </details>
 
@@ -79,10 +79,10 @@ HYVE is currently under active development.
  <summary><h3>HYVE - VM</h3></summary>
 
 ```
-            VM
-            │
-   ┌───────┼────────┐
-   │       │        │
+             VM
+             │
+   ┌─────┼────┐
+   │        │       │
    State    QMP      QGA
                      │
                   Guest
@@ -96,17 +96,17 @@ HYVE is currently under active development.
 ```
          HYVE
            │
-      ┌────┴────┐
+      ┌──┴──┐
       │         │
       QMP       QGA
       │         │
 lifecycle  guest interaction
       │         │
-      └────┬───┘
+      └──┬──┘
            │
           QEMU
            │
-      ┌────┴─────┐
+      ┌──┴───┐
       │          │
    disk      network
       │          │
