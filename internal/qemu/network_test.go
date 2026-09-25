@@ -2,8 +2,13 @@ package qemu
 
 import (
 	"context"
+	"net"
+	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -102,7 +107,66 @@ func TestNetworkArgs(t *testing.T) {
 	}
 }
 
-func TestGuestDHCPBridge(t *testing.T) {
+func requireBridge(t *testing.T, name string) {
+	t.Helper()
+
+	if runtime.GOOS != "linux" {
+		t.Skip("bridge networking requires Linux")
+	}
+
+	if _, err := net.InterfaceByName(name); err != nil {
+		t.Skipf("network bridge %q not available: %v. For dev container: sudo ./testdata/host/network-test.sh setup", name, err)
+	}
+}
+
+func startTestDHCP(t *testing.T) func() {
+	t.Helper()
+
+	dir := t.TempDir()
+
+	// pidFile := filepath.Join(dir, "dnsmasq.pid")
+	leaseFile := filepath.Join(dir, "dnsmasq.leases")
+
+	cmd := exec.Command(
+		"sudo",
+		"dnsmasq",
+		"--no-daemon",
+		"--interface=br0",
+		"--bind-interfaces",
+		"--except-interface=lo",
+		"--dhcp-range=192.168.100.100,192.168.100.200,255.255.255.0,1h",
+		"--dhcp-option=3,192.168.100.1",
+		"--dhcp-option=6,192.168.100.1",
+		// "--pid-file="+pidFile,
+		"--dhcp-leasefile="+leaseFile,
+		"--log-dhcp",
+	)
+
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	t.Log("starting test DHCP server")
+
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start dnsmasq: %v", err)
+	}
+
+	t.Cleanup(func() {
+		t.Log("stopping test DHCP server")
+
+		if cmd.Process != nil {
+			_ = cmd.Process.Signal(syscall.SIGTERM)
+		}
+
+		_ = cmd.Wait()
+	})
+
+	return func() {}
+}
+
+func TestGuestDHCP(t *testing.T) {
+	requireBridge(t, "br0")
+
 	image := qgaTestImage(t)
 	socket := filepath.Join(t.TempDir(), "qga.sock")
 
@@ -120,18 +184,20 @@ func TestGuestDHCPBridge(t *testing.T) {
 			},
 		},
 		Network: NetworkConfig{
-			Mode:      NetworkBridge,
-			Interface: "br0",
+			Mode:      NetworkTAP,
+			Interface: "hyve-tap0",
 		},
 		QGASocket: socket,
 	}
 
 	q := New()
 
+	startTestDHCP(t)
+
 	t.Logf("starting QEMU")
 	t.Logf("image: %s", image)
 	t.Logf("QGA socket: %s", socket)
-	t.Logf("network: bridge br0")
+	t.Logf("network: tap hyve-tap0 -> br0")
 
 	if err := q.Start(ctx, cfg); err != nil {
 		t.Fatalf("start QEMU: %v", err)

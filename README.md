@@ -369,6 +369,8 @@ sudo apt install -y \
     iproute2 \
     isc-dhcp-client \
     iputils-ping \
+    dnsmasq \
+    isc-dhcp-client \
     qemu-system-x86 \
     qemu-utils
 ```
@@ -435,7 +437,7 @@ go test ./internal/qemu -run TestNetworkArgs -v
 
 Check QEMU-Guest DCHP bridge
 ```sh
-go test ./internal/qemu -run TestGuestDHCPBridge -v
+go test ./internal/qemu -run TestGuestDHCP -v
 ```
 
 Check QEMU-QGA Ping
@@ -506,9 +508,217 @@ TAP: ✅
 QEMU → TAP: ✅
 TAP → Bridge: ✅
 Guest NIC: ✅
-Guest → Host IP: ✅
+Guest ↔ Host: ✅
+
+
+DHCP
+```
+                    Dev Container
+                         │
+                    ┌────┴────┐
+                    │   br0   │
+                    │10.99.0.1│
+                    └────┬────┘
+                         │
+                  hyve-tap0
+                         │
+                       QEMU
+                         │
+                       ens3
+                         │
+                  Debian Guest
+                  DHCP → 10.99.0.x
+```
+
+TAP-Connection: ✅
+Bridge: ✅
+Guest ↔ Host: ✅
+DHCP: ✅
+automatic Guest-IP: ✅
+Default Route: ✅
+
+flow
+```
+hyve run <VM>
+      │
+      ▼
+   hyved
+      │
+      ├── create TAP
+      ├── mount TAP to br0
+      ├── start QEMU
+      └── Guest get IP from DHCP
+```
+
+Runs now with br0, TAP/ QEMO, DHCP
+```
+hyve run test
+      │
+      ▼
+    hyved
+      │
+      ├── Bridge: br0
+      │
+      ├── TAP / QEMU
+      │
+      ▼
+    Guest
+      │
+      ├── DHCP
+      ▼
+192.168.100.77/24
+```
+</details>
+
+
+<details>
+ <summary><h3>Target structure</h3></summary>
+
+
+```
+TestGuestDHCP
+    │
+    ├── 1. prepare Testnetwork
+    │      ├── check br0
+    │      └── DHCP verfügbar
+    │
+    ├── 2. QEMU starten
+    │      └── TAP → br0
+    │
+    ├── 3. Auf QGA warten
+    │
+    ├── 4. Guest-IP über QGA ermitteln
+    │
+    ├── 5. Prüfen:
+    │      ├── IPv4 vorhanden
+    │      ├── erwartetes Interface
+    │      └── nicht 169.254.x.x
+    │
+    └── 6. Netzwerk testen
+           └── Guest → Host / Host → Guest
+```
+
+Iterated development
+```
+today
+  │
+  ├── QEMU
+  ├── KVM
+  ├── QGA
+  ├── br0
+  └── DHCP
+       │
+       ▼
+TestGuestDHCP
+       │
+       ▼
+network package
+       │
+       ▼
+hyved as clean Daemon
+       │
+       ▼
+Debian USB Host
+       │
+       ▼
+┌──────────────────────┐
+│        HYVE          │
+│                      │
+│ VM lifecycle         │
+│ QEMU/KVM             │
+│ Networking           │
+│ DHCP                 │
+│ QGA                  │
+└──────────────────────┘
+       │
+       ▼
+   bootable USB-Host
+```
+
+QEMU starts network
+```
+QEMU
+ │
+ ├── QGA
+ │
+ └── virtio NIC
+       │
+       ▼
+      TAP
+       │
+       ▼
+      br0
+       │
+       ▼
+     DHCP
+       │
+       ▼
+ Guest eth0
+```
+
+Networkpath
+```
+QEMU
+  │
+  │ virtio
+  ▼
+ens3
+  │
+  ▼
+hyve-tap0
+  │
+  ▼
+br0
+  │
+  ▼
+dnsmasq
+  │
+  ▼
+192.168.100.96/24
+```
+
+Run in dev container
+```sh
+go test ./internal/qemu -run TestGuestDHCP -v -timeout 90s
+```
+
+```
+Host
+ │
+ ├── br0 = 192.168.100.1/24
+ │    │
+ │    └── hyve-tap0
+ │          │
+ │          ▼
+ │        QEMU
+ │          │
+ │        ens3
+ │          │
+ │          ▼
+ │       DHCP
+ │          │
+ │          ▼
+ │     192.168.100.x
+ │
+ └── QGA
+      └── GuestNetworkInterfaces()
+```
+
+
+```
+GuestExec(...)
+    │
+    ├── guest-exec
+    │      └── PID
+    │
+    └── guest-exec-status
+           ├── stdout
+           ├── stderr
+           └── exit code
+```
 
 </details>
+
 
 ## Releases
 

@@ -175,6 +175,9 @@ func (q *QEMU) Start(ctx context.Context, cfg Config) error {
 		args...,
 	)
 
+	q.cmd.Stdout = os.Stdout
+	q.cmd.Stderr = os.Stderr
+
 	if err := q.cmd.Start(); err != nil {
 		return fmt.Errorf("start qemu: %w", err)
 	}

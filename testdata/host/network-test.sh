@@ -21,6 +21,8 @@ setup() {
 
     ip link set "$BRIDGE" up
 
+    ip addr add 192.168.100.1/24 dev "$BRIDGE" 2>/dev/null || true
+
     if ! ip link show "$TAP" >/dev/null 2>&1; then
         echo "Creating TAP: $TAP"
         ip tuntap add dev "$TAP" mode tap

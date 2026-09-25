@@ -34,6 +34,13 @@ type GuestIPAddress struct {
 	Prefix  int    `json:"prefix"`
 }
 
+type guestExecResult struct {
+	Exited   bool   `json:"exited"`
+	ExitCode int    `json:"exitcode"`
+	OutData  string `json:"out-data"`
+	ErrData  string `json:"err-data"`
+}
+
 func (q *QEMU) GuestPing() error {
 	if q.qga == "" {
 		return fmt.Errorf("QGA socket is not configured")
@@ -67,6 +74,73 @@ func (q *QEMU) GuestNetworkInterfaces() ([]GuestNetworkInterface, error) {
 	}
 
 	return interfaces, nil
+}
+
+func (q *QEMU) GuestExec(command string, args ...string) (string, string, int, error) {
+	if q.qga == "" {
+		return "", "", -1, fmt.Errorf("QGA socket is not configured")
+	}
+
+	arguments := map[string]interface{}{
+		"path":           command,
+		"capture-output": true,
+	}
+
+	if len(args) > 0 {
+		arguments["arg"] = args
+	}
+
+	data, err := qgaExecute(
+		q.qga,
+		"guest-exec",
+		arguments,
+	)
+	if err != nil {
+		return "", "", -1, err
+	}
+
+	var start struct {
+		PID int `json:"pid"`
+	}
+
+	if err := json.Unmarshal(data, &start); err != nil {
+		return "", "", -1, fmt.Errorf(
+			"decode guest-exec response: %w",
+			err,
+		)
+	}
+
+	for i := 0; i < 50; i++ {
+		data, err := qgaExecute(
+			q.qga,
+			"guest-exec-status",
+			map[string]interface{}{
+				"pid": start.PID,
+			},
+		)
+		if err != nil {
+			return "", "", -1, err
+		}
+
+		var result guestExecResult
+
+		if err := json.Unmarshal(data, &result); err != nil {
+			return "", "", -1, fmt.Errorf(
+				"decode guest-exec-status response: %w",
+				err,
+			)
+		}
+
+		if result.Exited {
+			return result.OutData, result.ErrData, result.ExitCode, nil
+		}
+
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	return "", "", -1, fmt.Errorf(
+		"guest-exec did not finish within timeout",
+	)
 }
 
 func qgaExecute(
