@@ -32,6 +32,41 @@ func TestGuestPing(t *testing.T) {
 		"-serial", "none",
 	)
 
+	q, qemuDone := startQGATestVM(t, image, socket)
+
+	waitForQGA(t, q, qemuDone)
+
+	t.Log("QGA is ready")
+
+	if err := q.GuestPing(); err != nil {
+		t.Fatalf("GuestPing failed: %v", err)
+	}
+
+	t.Logf("GuestExec successful")
+}
+
+func startQGATestVM(
+	t *testing.T,
+	image string,
+	socket string,
+) (*QEMU, <-chan error) {
+	t.Helper()
+
+	args := qemuBaseArgs()
+
+	args = append(args,
+		"-m", "512M",
+		"-smp", "1",
+		"-drive",
+		"file="+image+",if=virtio,format=qcow2",
+		"-chardev",
+		"socket,id=qga,path="+socket+",server=on,wait=off",
+		"-device", "virtio-serial",
+		"-device",
+		"virtserialport,chardev=qga,name=org.qemu.guest_agent.0",
+		"-serial", "none",
+	)
+
 	cmd := exec.Command(
 		"qemu-system-x86_64",
 		args...,
@@ -71,20 +106,10 @@ func TestGuestPing(t *testing.T) {
 		}
 	})
 
-	q := &QEMU{
+	return &QEMU{
 		cmd: cmd,
 		qga: socket,
-	}
-
-	waitForQGA(t, q, qemuDone)
-
-	t.Log("QGA is ready")
-
-	if err := q.GuestPing(); err != nil {
-		t.Fatalf("GuestPing failed: %v", err)
-	}
-
-	t.Logf("GuestExec successful")
+	}, qemuDone
 }
 
 func qgaTestImage(t *testing.T) string {
