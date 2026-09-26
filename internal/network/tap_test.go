@@ -1,5 +1,6 @@
 //go:build linux
 
+// go test ./internal/network -run TestCreateTAP -v
 package network
 
 import "testing"

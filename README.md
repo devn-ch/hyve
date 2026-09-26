@@ -762,6 +762,21 @@ hyve-test0
         ▼
 TAP.Close()
 ```
+
+bridge.go
+```
+CreateBridge()
+     │
+     ├── if exists → created=false
+     │
+     └── created   → created=true
+                              │
+                              ▼
+                           Close()
+                              │
+                         delete Bridge
+```
+
 </details>
 
 
