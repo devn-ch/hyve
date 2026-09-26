@@ -5,6 +5,7 @@
         "context": ".."
     },
     "workspaceFolder": "/workspaces/hyve",
+    "remoteUser": "root",
     "runArgs": [
         "--privileged"
     ],

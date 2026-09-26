@@ -49,6 +49,23 @@ HYVE is currently under active development.
    │  VM    │
    └─────┘
 ```
+
+```
+VM started
+   ↓
+Network.Create()
+   ↓
+TAP created
+   ↓
+TAP bind to br0
+   ↓
+QEMU started with TAP
+   ↓
+  DHCP
+   ↓
+QGA → Guest-IP
+```
+
 </details>
 
 
@@ -725,6 +742,28 @@ GuestExec(...)
 ```
 
 </details>
+
+<details>
+ <summary><h3>Network components</h3></summary>
+
+tap.go
+```
+CreateTAP("hyve-test0")
+        │
+        ▼
+/dev/net/tun
+        │
+        ▼
+TUNSETIFF
+        │
+        ▼
+hyve-test0
+        │
+        ▼
+TAP.Close()
+```
+</details>
+
 
 ## Releases
 
