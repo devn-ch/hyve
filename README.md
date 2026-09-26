@@ -511,23 +511,30 @@ Guest NIC: ✅
 Guest ↔ Host: ✅
 
 
-DHCP
+DHCP test
 ```
-                    Dev Container
-                         │
-                    ┌────┴────┐
-                    │   br0   │
-                    │10.99.0.1│
-                    └────┬────┘
-                         │
-                  hyve-tap0
-                         │
-                       QEMU
-                         │
-                       ens3
-                         │
-                  Debian Guest
-                  DHCP → 10.99.0.x
+    Dev Container
+      │
+    QEMU
+      │
+      ▼
+    hyve-tap0
+      │
+      ▼
+ ┌────┴────────────┐
+ │   br0           │
+ │192.168.100.1/24 │
+ └────┬────────────┘
+      │
+      ▼
+    dnsmasq
+      │
+      ▼
+  Debian Guest
+  ens3 DHCP → 192.168.100.157/24
+      │
+      ▼
+    QGA guest-network-get-interfaces
 ```
 
 TAP-Connection: ✅
@@ -719,8 +726,6 @@ GuestExec(...)
 
 </details>
 
-
 ## Releases
 
 see [CHANGELOG](CHANGELOG.md)
-

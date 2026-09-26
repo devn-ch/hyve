@@ -5,6 +5,16 @@ Description see [README](README.md)
 
 ## Release v0.1
 
+✅ TestNetworkArgs
+✅ TestGuestDHCP
+✅ TestGuestPing
+✅ QGA with VirtIO-Serial
+✅ DHCP with TAP → br0
+✅ Guest get an IPv4: 192.168.100.157/24
+✅ QGA has connectivity to read the Guest-Netzwerkinterfaces
+✅ common QEMU-Test-Startup
+✅ KVM-acceleration support in the tests
+
 HYVE scope
 
 ```
