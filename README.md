@@ -30,24 +30,24 @@ HYVE is currently under active development.
  <summary><h3>HYVE daemon (hyved)</h3></summary>
 
 ```
-      HYVE
-        │
-   ┌──┴──┐
+     HYVE
+      │
+   ┌──┴─────┐
    │ hyved  │
    │ daemon │
-   └──┬──┘
-        │
+   └──┬─────┘
+      │
   VM lifecycle
-        │
-   ┌──▼──┐
-   │ QEMU   │
-   │ + KVM  │
-   └─────┘
-        │
-   ┌──▼──┐
-   │ Guest  │
-   │  VM    │
-   └─────┘
+      │
+   ┌──▼────┐
+   │ QEMU  │
+   │ + KVM │
+   └───────┘
+      │
+   ┌──▼────┐
+   │ Guest │
+   │  VM   │
+   └───────┘
 ```
 
 ```
@@ -74,19 +74,19 @@ QGA → Guest-IP
 
 ```
    ┌────────┐
-   │     CLI     │
+   │ CLI    │
    └───┬────┘
-          │
-   ┌───▼────┐
-   │  VM Manager │
-   └───┬────┘
-          │
-   ┌───▼────┐
+       │
+   ┌───▼────────┐
+   │ VM Manager │
+   └───┬────────┘
+       │
+   ┌───▼─────────┐
    │ QEMU Driver │
-   └───┬────┘
-          │
+   └───┬─────────┘
+       │
    ┌───▼────┐
-   │    QEMU     │
+   │ QEMU   │
    └────────┘
 ```
 </details>
@@ -96,13 +96,13 @@ QGA → Guest-IP
  <summary><h3>HYVE - VM</h3></summary>
 
 ```
-             VM
-             │
+         VM
+         │
    ┌─────┼────┐
-   │        │       │
-   State    QMP      QGA
-                     │
-                  Guest
+   │     │    │
+   State QMP QGA
+              │
+            Guest
 ```
 </details>
 
@@ -111,24 +111,24 @@ QGA → Guest-IP
  <summary><h3>HYVE - QMP and QGA</h3></summary>
 
 ```
-         HYVE
-           │
-      ┌──┴──┐
-      │         │
-      QMP       QGA
-      │         │
-lifecycle  guest interaction
-      │         │
-      └──┬──┘
-           │
-          QEMU
-           │
+       HYVE
+         │
       ┌──┴───┐
-      │          │
-   disk      network
-      │          │
-      ▼          ▼
-   Guest OS     NIC
+      │      │
+      QMP   QGA
+      │      │
+lifecycle  guest interaction
+      │      │
+      └──┬───┘
+         │
+        QEMU
+         │
+      ┌──┴───┐
+      │      │
+    disk  network
+      │      │
+      ▼      ▼
+Guest OS    NIC
 ```
 
 ```
@@ -291,7 +291,7 @@ HYVE Web UI
         hyved
           │
           ▼
-       QEMU
+        QEMU
 ```
 
 FE console:
