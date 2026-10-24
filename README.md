@@ -2,9 +2,9 @@
 
 **Lightweight virtualization. Anywhere.**
 
-HYVE is a lightweight, API-first virtualization platform designed to run and manage virtual machines on x86_64 and ARM64 Linux hosts.
+HYVE is a lightweight, API-first virtualization platform designed to run and manage virtual machines on x86_64 and ARM64 Linux hosts. It provide a standard administration workflow without exposing ssh.
 
-Built on [QEMU](https://www.qemu.org/)/ [KVM](https://linux-kvm.org/), HYVE aims to make on-premises virtualization simpler, more secure, and easier to operate — from small business servers and edge devices to developer environments and homelabs.
+Built on [QEMU](https://www.qemu.org/)/ [KVM](https://linux-kvm.org/), HYVE aims to make on-premises virtualization simple, more secure, and easy to operate — from small business servers and edge devices to developer environments and homelabs.
 
 ## Vision
 
@@ -364,20 +364,10 @@ MAC 52:54:00:12:34:11
 ```
 </details>
 
-
-## How to build
-
-The target OS is linux with KVM acceleration support. For development you can also run on MacOS in a dev container but w/o KVM feature.
-
-```sh
-go mod tidy
-make build
-```
-
 ## Prerequisites to build from source
 
 - docker
-- vscode with dev container
+- optional w/o dependency problems or on macos: vscode with dev container
 
 in dev container
 ```sh
@@ -396,6 +386,50 @@ Check KVM is available:
 ```sh
 ls -l /dev/kvm
 ```
+
+
+## How to build
+
+The target OS is linux with KVM acceleration support. For development you can also run on MacOS in a dev container but w/o KVM feature.
+
+```sh
+go mod tidy
+make build
+```
+
+## Get Started
+
+hyve need additional rights, so use `sudo` or the dev container (root)
+
+1. Start the HYVE daemon (hyved)
+```sh
+./bin/hyved
+```
+
+2. Show HYVE CLI help about available commands
+
+CLI help:
+```sh
+./bin/hyve
+```
+
+shows running VMs:
+```sh
+./bin/hyve list
+```
+
+download an ISO
+```sh
+cd tmp
+wget ...
+```
+
+
+create a VM
+```sh
+./bin/hyve create test --cpus 1 --memory 512 --drive disk:10G --drive cdrom:$(pwd)/tmp/nocloud-amd64.iso
+```
+
 
 ## How to test a QEMU configuration
 
@@ -776,9 +810,26 @@ CreateBridge()
                               │
                          delete Bridge
 ```
-
 </details>
 
+<details>
+ <summary><h3>Connect TAP with Bridge</h3></summary>
+
+```
+CreateBridge("br0")
+        │
+        ▼
+CreateTAP("hyve-tap0")
+        │
+        ▼
+bridge.AddInterface(tap.name)
+        │
+        ▼
+      br0
+       │
+       └── hyve-tap0
+```
+</details>
 
 ## Releases
 
