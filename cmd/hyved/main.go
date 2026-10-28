@@ -64,15 +64,21 @@ type managedVM struct {
 }
 
 type VMManager struct {
-	mu    sync.Mutex
-	vms   map[string]*managedVM
-	store *vm.Store
+	mu         sync.Mutex
+	vms        map[string]*managedVM
+	store      *vm.Store
+	qmpDir     string
+	qgaDir     string
+	consoleDir string
 }
 
 func NewVMManager(store *vm.Store) *VMManager {
 	return &VMManager{
-		vms:   make(map[string]*managedVM),
-		store: store,
+		vms:        make(map[string]*managedVM),
+		store:      store,
+		qmpDir:     qmpDir,
+		qgaDir:     qgaDir,
+		consoleDir: consoleDir,
 	}
 }
 
@@ -99,26 +105,29 @@ func tapNameForVM(name string) string {
 }
 
 func (m *VMManager) Start(ctx context.Context, cfg qemu.Config) error {
-	qmpSocket := filepath.Join(qmpDir, cfg.Name+".sock")
-	qgaSocket := filepath.Join(qgaDir, cfg.Name+".sock")
-	consoleSocket := filepath.Join(consoleDir, cfg.Name+".sock")
+	// Socket-Pfade aus der Manager-Konfiguration verwenden.
+	qmpSocket := filepath.Join(m.qmpDir, cfg.Name+".sock")
+	qgaSocket := filepath.Join(m.qgaDir, cfg.Name+".sock")
+	consoleSocket := filepath.Join(m.consoleDir, cfg.Name+".sock")
 
-	// Create the directory for the sockets
-
-	if err := os.MkdirAll(qmpDir, 0755); err != nil {
-		return fmt.Errorf("create QMP directory: %w", err)
+	// Socket-Verzeichnisse anlegen.
+	dirs := []struct {
+		name string
+		path string
+	}{
+		{name: "QMP", path: m.qmpDir},
+		{name: "QGA", path: m.qgaDir},
+		{name: "console", path: m.consoleDir},
 	}
 
-	// create the directory for the console socket
-	if err := os.MkdirAll(consoleDir, 0755); err != nil {
-		return fmt.Errorf("create console directory: %w", err)
+	for _, dir := range dirs {
+		if err := os.MkdirAll(dir.path, 0755); err != nil {
+			return fmt.Errorf("create %s directory: %w", dir.name, err)
+		}
 	}
 
-	// Create the directory for the QGA socket
-	if err := os.MkdirAll(qgaDir, 0755); err != nil {
-		return fmt.Errorf("create QGA directory: %w", err)
-	}
-
+	// VM-Eintrag reservieren. Ein Neustart ist erst erlaubt, wenn
+	// der vorherige QEMU-Prozess beendet und sein Cleanup abgeschlossen ist.
 	m.mu.Lock()
 
 	if existing, exists := m.vms[cfg.Name]; exists {
@@ -126,8 +135,6 @@ func (m *VMManager) Start(ctx context.Context, cfg qemu.Config) error {
 
 		switch state {
 		case vm.StateStopped, vm.StateExited:
-			// Der vorherige QEMU-Prozess ist beendet und sein
-			// Cleanup abgeschlossen. Ein Neustart ist erlaubt.
 			delete(m.vms, cfg.Name)
 
 		default:
@@ -152,14 +159,25 @@ func (m *VMManager) Start(ctx context.Context, cfg qemu.Config) error {
 	m.vms[cfg.Name] = entry
 	m.mu.Unlock()
 
-	// Clean up any stale sockets from previous runs of hyved.
-	// This is important because if a socket file already exists, QEMU will fail to start.
+	// Reservierung nur dann entfernen, wenn sie noch zu diesem
+	// Startversuch gehört. So wird kein neuerer Eintrag gelöscht.
+	removeEntry := func() {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+
+		if m.vms[cfg.Name] == entry {
+			delete(m.vms, cfg.Name)
+		}
+	}
+
+	// Veraltete Socket-Dateien früherer Prozesse entfernen.
 	for _, socket := range []string{
 		qmpSocket,
 		qgaSocket,
 		consoleSocket,
 	} {
 		if err := os.Remove(socket); err != nil && !os.IsNotExist(err) {
+			removeEntry()
 			return fmt.Errorf("remove stale socket %s: %w", socket, err)
 		}
 	}
@@ -168,7 +186,7 @@ func (m *VMManager) Start(ctx context.Context, cfg qemu.Config) error {
 	cfg.QGASocket = qgaSocket
 	cfg.ConsoleSocket = consoleSocket
 
-	// Prepare host-side networking.
+	// prepare Host-site Netzwerk.
 	var networkConfig network.Config
 
 	switch cfg.Network.Mode {
@@ -192,25 +210,20 @@ func (m *VMManager) Start(ctx context.Context, cfg qemu.Config) error {
 		}
 
 	default:
-		m.mu.Lock()
-		delete(m.vms, cfg.Name)
-		m.mu.Unlock()
-
+		removeEntry()
 		return fmt.Errorf("unsupported network mode %q", cfg.Network.Mode)
 	}
 
 	hostNetwork, err := network.CreateNetwork(networkConfig)
 	if err != nil {
-		m.mu.Lock()
-		delete(m.vms, cfg.Name)
-		m.mu.Unlock()
-
+		removeEntry()
 		return fmt.Errorf("prepare network for VM %q: %w", cfg.Name, err)
 	}
 
 	entry.network = hostNetwork
 
-	// QEMU connects to the host-managed TAP, not directly to the bridge.
+	// Im Bridge-Modus verbindet sich QEMU mit dem von HYVE
+	// verwalteten TAP-Interface, nicht direkt mit der Bridge.
 	qemuConfig := cfg
 	if cfg.Network.Mode == qemu.NetworkBridge {
 		qemuConfig.Network.Mode = qemu.NetworkTAP
@@ -218,11 +231,13 @@ func (m *VMManager) Start(ctx context.Context, cfg qemu.Config) error {
 	}
 
 	if err := entry.qemu.Start(ctx, qemuConfig); err != nil {
-		_ = hostNetwork.Close()
+		if closeErr := hostNetwork.Close(); closeErr != nil {
+			log.Printf("cleanup network for VM %q after start failure: %v",
+				cfg.Name, closeErr)
+		}
 
-		m.mu.Lock()
-		delete(m.vms, cfg.Name)
-		m.mu.Unlock()
+		entry.network = nil
+		removeEntry()
 
 		return fmt.Errorf("start QEMU for VM %q: %w", cfg.Name, err)
 	}
@@ -233,28 +248,35 @@ func (m *VMManager) Start(ctx context.Context, cfg qemu.Config) error {
 
 	log.Printf("VM %q is running", cfg.Name)
 
+	// QEMU überwachen und Ressourcen nach Prozessende freigeben.
 	go func() {
-		err := entry.qemu.Wait()
+		waitErr := entry.qemu.Wait()
 
-		// release TAP
 		if entry.network != nil {
-			if networkErr := entry.network.Close(); networkErr != nil {
-				log.Printf("cleanup network for VM %q: %v", cfg.Name, networkErr)
+			if closeErr := entry.network.Close(); closeErr != nil {
+				log.Printf("cleanup network for VM %q: %v", cfg.Name, closeErr)
 			}
 
 			entry.network = nil
 		}
 
-		_ = os.Remove(qmpSocket)
-		_ = os.Remove(qgaSocket)
-		_ = os.Remove(consoleSocket)
+		for _, socket := range []string{
+			qmpSocket,
+			qgaSocket,
+			consoleSocket,
+		} {
+			if err := os.Remove(socket); err != nil && !os.IsNotExist(err) {
+				log.Printf("remove socket %s for VM %q: %v",
+					socket, cfg.Name, err)
+			}
+		}
 
 		m.mu.Lock()
 		defer m.mu.Unlock()
 
-		if err != nil {
+		if waitErr != nil {
 			entry.info.State = vm.StateExited
-			log.Printf("VM %q exited: %v", cfg.Name, err)
+			log.Printf("VM %q exited: %v", cfg.Name, waitErr)
 		} else {
 			entry.info.State = vm.StateStopped
 			log.Printf("VM %q stopped", cfg.Name)
