@@ -420,6 +420,14 @@ func (m *VMManager) Create(def vm.Definition) error {
 	return m.store.Create(def)
 }
 
+func stateDirFromEnv() string {
+	if dir := strings.TrimSpace(os.Getenv("HYVE_STATE_DIR")); dir != "" {
+		return dir
+	}
+
+	return vm.DefaultStateDir
+}
+
 func main() {
 	if err := os.MkdirAll(filepath.Dir(socketPath), 0755); err != nil {
 		log.Fatal(err)
@@ -446,7 +454,10 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	store := vm.NewStore(vm.DefaultStateDir)
+	stateDir := stateDirFromEnv()
+	log.Printf("VM state directory: %s", stateDir)
+
+	store := vm.NewStore(stateDir)
 	manager := NewVMManager(store)
 
 	signalChan := make(chan os.Signal, 1)
