@@ -103,18 +103,6 @@ func (m *VMManager) Start(ctx context.Context, cfg qemu.Config) error {
 	qgaSocket := filepath.Join(qgaDir, cfg.Name+".sock")
 	consoleSocket := filepath.Join(consoleDir, cfg.Name+".sock")
 
-	// Clean up any stale sockets from previous runs of hyved.
-	// This is important because if a socket file already exists, QEMU will fail to start.
-	for _, socket := range []string{
-		qmpSocket,
-		qgaSocket,
-		consoleSocket,
-	} {
-		if err := os.Remove(socket); err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("remove stale socket %s: %w", socket, err)
-		}
-	}
-
 	// Create the directory for the sockets
 
 	if err := os.MkdirAll(qmpDir, 0755); err != nil {
@@ -135,9 +123,17 @@ func (m *VMManager) Start(ctx context.Context, cfg qemu.Config) error {
 
 	if existing, exists := m.vms[cfg.Name]; exists {
 		state := existing.info.State
-		m.mu.Unlock()
 
-		return fmt.Errorf("VM %q already exists (%s)", cfg.Name, state)
+		switch state {
+		case vm.StateStopped, vm.StateExited:
+			// Der vorherige QEMU-Prozess ist beendet und sein
+			// Cleanup abgeschlossen. Ein Neustart ist erlaubt.
+			delete(m.vms, cfg.Name)
+
+		default:
+			m.mu.Unlock()
+			return fmt.Errorf("VM %q already exists (%s)", cfg.Name, state)
+		}
 	}
 
 	entry := &managedVM{
@@ -155,6 +151,18 @@ func (m *VMManager) Start(ctx context.Context, cfg qemu.Config) error {
 
 	m.vms[cfg.Name] = entry
 	m.mu.Unlock()
+
+	// Clean up any stale sockets from previous runs of hyved.
+	// This is important because if a socket file already exists, QEMU will fail to start.
+	for _, socket := range []string{
+		qmpSocket,
+		qgaSocket,
+		consoleSocket,
+	} {
+		if err := os.Remove(socket); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove stale socket %s: %w", socket, err)
+		}
+	}
 
 	cfg.QMPSocket = qmpSocket
 	cfg.QGASocket = qgaSocket

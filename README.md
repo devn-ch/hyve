@@ -922,6 +922,11 @@ That checked this flow
 QEMU → TAP (hv-nettest-…) → br0 → dnsmasq (DHCP) → Gast erhält IPv4
 ```
 
+shows information about the VM including network
+```sh
+./bin/hyve info nettest
+```
+
 </details>
 
 ## Releases
