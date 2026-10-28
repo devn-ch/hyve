@@ -13,15 +13,17 @@ const (
 
 type Config struct {
 	Mode      Mode
-	Interface string
-	Bridge    string
+	Interface string // existing TAP on ModeTAP
+	Bridge    string // Bridge-Name on ModeBridge
+	TAPName   string // Optional, managed by HYVE
 }
 
 type Network struct {
-	mode        Mode
-	bridge      *Bridge
-	tap         *TAP
-	bridgeOwned bool
+	mode          Mode
+	bridge        *Bridge
+	tap           *TAP
+	interfaceName string
+	bridgeOwned   bool
 }
 
 func CreateNetwork(config Config) (*Network, error) {
@@ -47,14 +49,9 @@ func createTAPNetwork(config Config) (*Network, error) {
 		return nil, fmt.Errorf("TAP networking requires an interface")
 	}
 
-	tap, err := CreateTAP(config.Interface)
-	if err != nil {
-		return nil, fmt.Errorf("create TAP: %w", err)
-	}
-
 	return &Network{
-		mode: ModeTAP,
-		tap:  tap,
+		mode:          ModeTAP,
+		interfaceName: config.Interface,
 	}, nil
 }
 
@@ -74,11 +71,12 @@ func createBridgeNetwork(config Config) (*Network, error) {
 		bridgeOwned: bridge.created,
 	}
 
-	if config.Interface == "" {
+	// No TAP requested: use the bridge directly.
+	if config.TAPName == "" {
 		return network, nil
 	}
 
-	tap, err := CreateTAP(config.Interface)
+	tap, err := CreateTAP(config.TAPName)
 	if err != nil {
 		_ = network.Close()
 		return nil, fmt.Errorf("create TAP: %w", err)
@@ -108,6 +106,10 @@ func (n *Network) Interface() string {
 
 	if n.tap != nil {
 		return n.tap.name
+	}
+
+	if n.interfaceName != "" {
+		return n.interfaceName
 	}
 
 	if n.bridge != nil {

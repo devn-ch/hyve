@@ -425,11 +425,29 @@ wget ...
 ```
 
 
-create a VM
+create a VM config
 ```sh
 ./bin/hyve create test --cpus 1 --memory 512 --drive disk:10G --drive cdrom:$(pwd)/tmp/nocloud-amd64.iso
 ```
+start this VM
+```sh
+./bin/hyve run test
+```
 
+create a VM config with a bridge network
+```sh
+./bin/hyve create test \
+  --cpus 1 \
+  --memory 512 \
+  --drive disk:10G \
+  --drive cdrom:$(pwd)/tmp/nocloud-amd64.iso \
+  --network bridge \
+  --interface br0
+```
+start this VM
+```sh
+./bin/hyve run test
+```
 
 ## How to test a QEMU configuration
 
@@ -472,6 +490,12 @@ sudo socat TCP-LISTEN:5900,reuseaddr,fork UNIX-CONNECT:/tmp/test-vnc.sock
 
 
 ## Testing
+
+### Run all tests
+
+```sh
+go test ./...
+```
 
 <details>
  <summary><h3>Testsuite for QEMU features</h3></summary>
@@ -829,6 +853,75 @@ bridge.AddInterface(tap.name)
        │
        └── hyve-tap0
 ```
+</details>
+
+<details>
+ <summary><h3>How to test with DHCP in dev container</h3></summary>
+
+```sh
+apt-get update
+apt-get install -y dnsmasq
+```
+
+check if subnet is free
+```sh
+ip route | grep '192.168.50'
+```
+
+if free then create
+```sh
+ip addr add 192.168.50.1/24 dev br0
+ip link set br0 up
+```
+
+create a config
+
+```sh
+cat > /tmp/hyve-dnsmasq.conf <<'EOF'
+interface=br0
+bind-interfaces
+port=0
+dhcp-authoritative
+dhcp-range=192.168.50.100,192.168.50.200,255.255.255.0,1h
+log-dhcp
+EOF
+```
+
+start DHCP in foreground and keep terminal open
+```sh
+dnsmasq --no-daemon --conf-file=/tmp/hyve-dnsmasq.conf
+```
+
+check in another terminal the gast should have assigned an IP
+
+```sh
+python3 - <<'PY'
+import socket, json, time
+
+path = "/run/hyve/qga/nettest.sock"
+
+for attempt in range(6):
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+        s.settimeout(5)
+        s.connect(path)
+        s.sendall((json.dumps({
+            "execute": "guest-network-get-interfaces"
+        }) + "\n").encode())
+        result = json.loads(s.makefile().readline())
+
+    for interface in result.get("return", []):
+        if interface.get("name") == "ens3":
+            print(json.dumps(interface, indent=2))
+
+    time.sleep(5)
+PY
+```
+
+That checked this flow
+```
+QEMU → TAP (hv-nettest-…) → br0 → dnsmasq (DHCP) → Gast erhält IPv4
+```
+
 </details>
 
 ## Releases

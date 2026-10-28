@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -9,9 +11,11 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 
+	"github.com/devn-ch/hyve/internal/network"
 	"github.com/devn-ch/hyve/internal/qemu"
 	"github.com/devn-ch/hyve/internal/vm"
 )
@@ -56,6 +60,7 @@ type managedVM struct {
 	qmpSocket     string
 	qgaSocket     string
 	consoleSocket string
+	network       *network.Network
 }
 
 type VMManager struct {
@@ -69,6 +74,28 @@ func NewVMManager(store *vm.Store) *VMManager {
 		vms:   make(map[string]*managedVM),
 		store: store,
 	}
+}
+
+func tapNameForVM(name string) string {
+	sum := sha256.Sum256([]byte(name))
+	suffix := hex.EncodeToString(sum[:3])
+
+	prefix := strings.Map(func(r rune) rune {
+		if (r >= 'a' && r <= 'z') ||
+			(r >= 'A' && r <= 'Z') ||
+			(r >= '0' && r <= '9') ||
+			r == '_' || r == '-' {
+			return r
+		}
+
+		return '-'
+	}, name)
+
+	if len(prefix) > 5 {
+		prefix = prefix[:5]
+	}
+
+	return "hv-" + prefix + "-" + suffix
 }
 
 func (m *VMManager) Start(ctx context.Context, cfg qemu.Config) error {
@@ -133,12 +160,63 @@ func (m *VMManager) Start(ctx context.Context, cfg qemu.Config) error {
 	cfg.QGASocket = qgaSocket
 	cfg.ConsoleSocket = consoleSocket
 
-	if err := entry.qemu.Start(ctx, cfg); err != nil {
+	// Prepare host-side networking.
+	var networkConfig network.Config
+
+	switch cfg.Network.Mode {
+	case "", qemu.NetworkNAT:
+		networkConfig.Mode = network.ModeNAT
+
+	case qemu.NetworkNone:
+		networkConfig.Mode = network.ModeNone
+
+	case qemu.NetworkTAP:
+		networkConfig = network.Config{
+			Mode:      network.ModeTAP,
+			Interface: cfg.Network.Interface,
+		}
+
+	case qemu.NetworkBridge:
+		networkConfig = network.Config{
+			Mode:    network.ModeBridge,
+			Bridge:  cfg.Network.Interface,
+			TAPName: tapNameForVM(cfg.Name),
+		}
+
+	default:
 		m.mu.Lock()
 		delete(m.vms, cfg.Name)
 		m.mu.Unlock()
 
-		return err
+		return fmt.Errorf("unsupported network mode %q", cfg.Network.Mode)
+	}
+
+	hostNetwork, err := network.CreateNetwork(networkConfig)
+	if err != nil {
+		m.mu.Lock()
+		delete(m.vms, cfg.Name)
+		m.mu.Unlock()
+
+		return fmt.Errorf("prepare network for VM %q: %w", cfg.Name, err)
+	}
+
+	entry.network = hostNetwork
+
+	// QEMU connects to the host-managed TAP, not directly to the bridge.
+	qemuConfig := cfg
+	if cfg.Network.Mode == qemu.NetworkBridge {
+		qemuConfig.Network.Mode = qemu.NetworkTAP
+		qemuConfig.Network.Interface = hostNetwork.Interface()
+	}
+
+	if err := entry.qemu.Start(ctx, qemuConfig); err != nil {
+		_ = hostNetwork.Close()
+
+		m.mu.Lock()
+		delete(m.vms, cfg.Name)
+		m.mu.Unlock()
+
+		return fmt.Errorf("start QEMU for VM %q: %w", cfg.Name, err)
 	}
 
 	m.mu.Lock()
@@ -149,6 +227,15 @@ func (m *VMManager) Start(ctx context.Context, cfg qemu.Config) error {
 
 	go func() {
 		err := entry.qemu.Wait()
+
+		// release TAP
+		if entry.network != nil {
+			if networkErr := entry.network.Close(); networkErr != nil {
+				log.Printf("cleanup network for VM %q: %v", cfg.Name, networkErr)
+			}
+
+			entry.network = nil
+		}
 
 		_ = os.Remove(qmpSocket)
 		_ = os.Remove(qgaSocket)

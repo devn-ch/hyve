@@ -7,6 +7,7 @@ import (
 	"os"
 	"unsafe"
 
+	"github.com/vishvananda/netlink"
 	"golang.org/x/sys/unix"
 )
 
@@ -21,6 +22,18 @@ type ifreq struct {
 	Name  [unix.IFNAMSIZ]byte
 	Flags uint16
 	_     [unix.IFNAMSIZ - 2 - 2]byte
+}
+
+func deleteTAP(name string) error {
+	link, err := netlink.LinkByName(name)
+	if err != nil {
+		if _, ok := err.(netlink.LinkNotFoundError); ok {
+			return nil
+		}
+		return err
+	}
+
+	return netlink.LinkDel(link)
 }
 
 func createTAP(name string) (*os.File, string, error) {
@@ -47,5 +60,29 @@ func createTAP(name string) (*os.File, string, error) {
 
 	actualName := unix.ByteSliceToString(req.Name[:])
 
-	return file, actualName, nil
+	// start TAP interface
+	link, err := netlink.LinkByName(actualName)
+	if err != nil {
+		_ = file.Close()
+		return nil, "", fmt.Errorf("find TAP %q: %w", actualName, err)
+	}
+	if err := netlink.LinkSetUp(link); err != nil {
+		_ = file.Close()
+		return nil, "", fmt.Errorf("bring TAP %q up: %w", actualName, err)
+	}
+
+	if err := unix.IoctlSetInt(
+		int(file.Fd()),
+		unix.TUNSETPERSIST,
+		1,
+	); err != nil {
+		_ = file.Close()
+		return nil, "", fmt.Errorf("make TAP %q persistent: %w", actualName, err)
+	}
+
+	if err := file.Close(); err != nil {
+		return nil, "", fmt.Errorf("close TAP descriptor: %w", err)
+	}
+
+	return nil, actualName, nil
 }

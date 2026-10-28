@@ -27,16 +27,26 @@ func CreateTAP(name string) (*TAP, error) {
 }
 
 func (t *TAP) Close() error {
-	if t == nil || t.file == nil {
+	if t == nil {
 		return nil
 	}
 
-	err := t.file.Close()
-	t.file = nil
-
-	if err != nil {
-		return fmt.Errorf("close TAP %q: %w", t.name, err)
+	if t.file != nil {
+		if err := t.file.Close(); err != nil {
+			t.file = nil
+			return fmt.Errorf("close TAP %q: %w", t.name, err)
+		}
+		t.file = nil
 	}
 
+	if t.name == "" {
+		return nil
+	}
+
+	if err := deleteTAP(t.name); err != nil {
+		return fmt.Errorf("delete TAP %q: %w", t.name, err)
+	}
+
+	t.name = ""
 	return nil
 }
