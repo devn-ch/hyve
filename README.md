@@ -185,7 +185,7 @@ hyve stop <VM>
            │
            ▼
         Guest is shutting down
-        sauber herunter
+        graceful shutdown
            │
            ▼
        QEMU exits
@@ -286,12 +286,12 @@ HYVE Web UI
    ├── VM management
    ├── console access
    └── API
-          │
-          ▼
-        hyved
-          │
-          ▼
-        QEMU
+        │
+        ▼
+      hyved
+        │
+        ▼
+      QEMU
 ```
 
 FE console:
@@ -387,8 +387,7 @@ Check KVM is available:
 ls -l /dev/kvm
 ```
 
-
-## How to build
+## How to build from source
 
 The target OS is linux with KVM acceleration support. For development you can also run on MacOS in a dev container but w/o KVM feature.
 
@@ -449,7 +448,7 @@ start this VM
 ./bin/hyve run test
 ```
 
-## How to test a QEMU configuration
+## How to test a custom QEMU configuration
 
 ```sh
 mkdir tmp && cd tmp
@@ -579,10 +578,15 @@ Debian Guest
 ```
 
 Bridge: ✅
+
 TAP: ✅
+
 QEMU → TAP: ✅
+
 TAP → Bridge: ✅
+
 Guest NIC: ✅
+
 Guest ↔ Host: ✅
 
 
@@ -613,13 +617,18 @@ DHCP test
 ```
 
 TAP-Connection: ✅
+
 Bridge: ✅
+
 Guest ↔ Host: ✅
+
 DHCP: ✅
+
 automatic Guest-IP: ✅
+
 Default Route: ✅
 
-flow
+Run a VM
 ```
 hyve run <VM>
       │
