@@ -254,6 +254,14 @@ hyve run test
 <details>
  <summary><h3>HYVE - Console lifecycle</h3></summary>
 
+Prerequisites:
+  - installed `virt-viewer` a Virtual Machine Viewer app
+
+on Fedora
+```sh
+sudo dnf install virt-viewer
+```
+
 ```
 hyve console test
        │

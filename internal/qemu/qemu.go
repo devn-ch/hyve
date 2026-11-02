@@ -55,15 +55,20 @@ func New() *QEMU {
 
 func qemuBaseArgs() []string {
 	args := []string{
-		"-machine", "q35",
-		"-display", "none",
+		// "-display", "none",
+		"-display", "spice-app",
 		"-monitor", "none",
+		"-device", "virtio-vga",
+		"-cpu", "host",
 	}
 
 	if kvmAvailable() {
 		args = append([]string{
-			"-enable-kvm",
-			"-cpu", "host",
+			"-machine", "q35,accel=kvm",
+		}, args...)
+	} else {
+		args = append([]string{
+			"-machine", "q35",
 		}, args...)
 	}
 
