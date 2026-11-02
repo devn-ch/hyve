@@ -60,6 +60,7 @@ func qemuBaseArgs() []string {
 		"-monitor", "none",
 		"-device", "virtio-vga",
 		"-cpu", "host",
+		// "-device", "pci-serial",
 	}
 
 	if kvmAvailable() {
@@ -71,6 +72,13 @@ func qemuBaseArgs() []string {
 			"-machine", "q35",
 		}, args...)
 	}
+
+	args = append(args,
+		// "-chardev", "serial,id=esp32,path=/dev/ttyACM0",
+		// "-device", "pci-serial,chardev=esp32",
+		"-device", "qemu-xhci,id=xhci",
+		"-device", "usb-host,bus=xhci.0,vendorid=0x303a,productid=0x1001",
+	)
 
 	return args
 }
